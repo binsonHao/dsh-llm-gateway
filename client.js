@@ -21,6 +21,18 @@ window.__ModuleLoader__.load({
       return payload;
     }
 
+    async function postJson(action, payload) {
+      const response = await fetch(`${API}/${action}`, {
+        method: 'POST',
+        headers: { accept: 'application/json', 'content-type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error?.message || `HTTP ${response.status}`);
+      return data;
+    }
+
     const api = {
       status: () => callApi('status'),
       start: () => callApi('start'),
@@ -30,6 +42,7 @@ window.__ModuleLoader__.load({
       models: () => callApi('models'),
       probe: () => callApi('probe', { method: 'POST' }),
       probeSnapshot: () => callApi('probe'),
+      pin: (model, channelId) => postJson('pin', { model, channelId }),
     };
 
     const zh = {
@@ -61,7 +74,11 @@ window.__ModuleLoader__.load({
       lastError: '最近错误',
       okState: '正常',
       coolState: '冷却中',
-      modelList: '可调度模型（点击展开）',
+      modelList: '模型与通道选择（点击展开）',
+      pickHint: '点通道名把它设为该模型的首选；再点一次取消。首选通道不可用时会自动切下一个。',
+      pinnedTag: '首选',
+      noProbe: '未测',
+      clearPin: '恢复自动',
       started: '已启动',
       stoppedNotice: '已停止',
       restarted: '已重启',
@@ -111,7 +128,11 @@ window.__ModuleLoader__.load({
       lastError: 'Last error',
       okState: 'OK',
       coolState: 'Cooling',
-      modelList: 'Routable models (click to expand)',
+      modelList: 'Models and channel choice (click to expand)',
+      pickHint: 'Click a channel to prefer it for this model; click again to unselect. If it fails, the next one takes over.',
+      pinnedTag: 'preferred',
+      noProbe: 'not probed',
+      clearPin: 'Back to automatic',
       started: 'Started',
       stoppedNotice: 'Stopped',
       restarted: 'Restarted',
@@ -153,6 +174,18 @@ window.__ModuleLoader__.load({
       .lgw-slow { color: #a8453a; }
       .lgw-mid { color: #9a6b18; }
       .lgw-sum { opacity: .64; font-size: 12px; margin: 0 0 10px; }
+      .lgw-picks { list-style: none; margin: 6px 0 0; padding: 0; }
+      .lgw-pick-row { padding: 8px 0; border-bottom: 1px solid var(--dsw-border, rgba(127,127,127,.12)); }
+      .lgw-pick-name { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+      .lgw-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .lgw-chip { font: inherit; font-size: 12px; padding: 3px 9px; border-radius: 999px; cursor: pointer;
+        border: 1px solid var(--dsw-border, rgba(127,127,127,.28)); background: transparent; color: inherit; }
+      .lgw-chip:hover { border-color: var(--dsw-accent, #6b8f4e); }
+      .lgw-chip-on { background: rgba(107,143,78,.18); border-color: var(--dsw-accent, #6b8f4e); font-weight: 600; }
+      .lgw-chip-dead { opacity: .45; text-decoration: line-through; }
+      .lgw-badge-pin { background: rgba(107,143,78,.18); color: inherit; }
+      .lgw-mini { font: inherit; font-size: 11px; padding: 1px 7px; border-radius: 6px; cursor: pointer;
+        border: 1px solid var(--dsw-border, rgba(127,127,127,.28)); background: transparent; color: inherit; opacity: .7; }
       .lgw-notice { padding: 8px 12px; border-radius: 8px; font-size: 13px; background: rgba(127,127,127,.12); }
       .lgw-notice-error { background: rgba(176,72,60,.14); color: #a8453a; }
       .lgw-models { margin: 0; padding: 8px 0 0 18px; font-size: 12px; columns: 2; column-gap: 24px; opacity: .8; }
@@ -219,6 +252,43 @@ window.__ModuleLoader__.load({
       const rows = data?.channels ?? [];
       const probeRows = data?.probe?.rows ?? [];
       const probeByChannel = new globalThis.Map(probeRows.map(row => [row.channel, row]));
+
+      // 模型 -> 候选通道，按实测延迟排序（没测过的排后面）
+      const candidatesByModel = (() => {
+        const map = new globalThis.Map();
+        for (const row of probeRows) {
+          if (!map.has(row.model)) map.set(row.model, []);
+          map.get(row.model).push(row);
+        }
+        for (const list of map.values()) {
+          list.sort((a, b) => (a.ok === b.ok ? (a.ms || 1e9) - (b.ms || 1e9) : a.ok ? -1 : 1));
+        }
+        return map;
+      })();
+
+      function channelsFor(model) {
+        const list = candidatesByModel.get(model) ?? [];
+        const pinnedFor = new Set(data?.pins?.[model] ?? []);
+        return list
+          .map(row => ({
+            id: row.channel,
+            pinned: pinnedFor.has(row.channel),
+            dead: !row.ok,
+            ms: row.ok ? row.ms : 0,
+            title: `${row.channel} · ${row.site}${row.ok ? ` · ${row.ms}ms` : ` · ${row.status || '失败'}`}`,
+          }))
+          .sort((a, b) => (a.pinned === b.pinned ? (a.dead === b.dead ? a.ms - b.ms : a.dead ? 1 : -1) : a.pinned ? -1 : 1));
+      }
+
+      async function choosePin(model, channelId) {
+        try {
+          const fresh = await api.pin(model, channelId);
+          setState({ loading: false, data: fresh, error: null });
+          setNotice({ tone: 'ok', text: channelId ? `${model} → ${channelId}` : `${model} ${t('clearPin')}` });
+        } catch (reason) {
+          setNotice({ tone: 'error', text: t('failed', { message: errorMessage(reason) }) });
+        }
+      }
 
       return h('section', { className: 'lgw-page', 'aria-labelledby': titleId },
         h('style', null, styles),
@@ -298,7 +368,30 @@ window.__ModuleLoader__.load({
             type: 'button', className: 'lgw-btn', onClick: () => setShowModels(value => !value),
             'aria-expanded': showModels,
           }, `${t('modelList')} · ${data.models.length}`),
-          showModels ? h('ul', { className: 'lgw-models' }, data.models.map(id => h('li', { key: id }, id))) : null) : null);
+          showModels
+            ? h('div', null,
+                h('p', { className: 'lgw-sum', style: { marginTop: 10 } }, t('pickHint')),
+                h('ul', { className: 'lgw-picks' }, data.models.map(model => {
+                  const candidates = channelsFor(model);
+                  const pinnedNow = data.pins?.[model]?.[0];
+                  if (candidates.length === 0) return h('li', { key: model, className: 'lgw-pick-row' }, h('code', null, model), ' ', t('noProbe'));
+                  return h('li', { key: model, className: 'lgw-pick-row' },
+                    h('div', { className: 'lgw-pick-name' },
+                      h('code', null, model),
+                      pinnedNow ? h('span', { className: 'lgw-badge lgw-badge-pin' }, t('pinnedTag')) : null,
+                      pinnedNow ? h('button', {
+                        type: 'button', className: 'lgw-mini',
+                        onClick: () => choosePin(model, null),
+                      }, t('clearPin')) : null),
+                    h('div', { className: 'lgw-chips' }, candidates.map(candidate => h('button', {
+                      key: candidate.id,
+                      type: 'button',
+                      className: `lgw-chip${candidate.pinned ? ' lgw-chip-on' : ''}${candidate.dead ? ' lgw-chip-dead' : ''}`,
+                      title: candidate.title,
+                      onClick: () => choosePin(model, candidate.pinned ? null : candidate.id),
+                    }, h('span', { className: latencyClass(candidate.ms) }, candidate.ms ? `${candidate.ms}ms` : '—'), ' ', candidate.id))));
+                })))
+            : null) : null);
     }
 
     function latencyClass(ms) {

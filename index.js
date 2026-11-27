@@ -120,6 +120,7 @@ class Relay {
       modelCount: summary?.models ?? 0,
       models: this.gateway?.running ? this.gateway.models() : [],
       probe: readProbeSnapshot(this.settings.dir),
+      pins: this.gateway?.running ? this.gateway.pins() : {},
     }
   }
 
@@ -164,6 +165,12 @@ class Relay {
     return this.gateway?.running ? this.gateway.models() : []
   }
 
+  setPin(model, channelId) {
+    if (!this.gateway?.running) throw new Error('中转站未运行')
+    this.gateway.setPin(model, channelId)
+    return this.status()
+  }
+
   async probe() {
     if (this.probing) throw new Error('上一轮测速还没结束')
     this.probing = true
@@ -206,6 +213,16 @@ function route(relay) {
       }
       if (action === 'models' && method === 'GET') {
         return sendJson(response, 200, { models: relay.models() })
+      }
+      if (action === 'pin' && method === 'POST') {
+        const chunks = []
+        for await (const chunk of request) chunks.push(chunk)
+        const parsed = chunks.length > 0 ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}
+        if (typeof parsed.model !== 'string' || parsed.model === '') {
+          return sendJson(response, 400, { error: { message: 'model 必填' } })
+        }
+        const channelId = parsed.channelId === null || parsed.channelId === undefined ? null : String(parsed.channelId)
+        return sendJson(response, 200, relay.setPin(parsed.model, channelId))
       }
       if (action === 'probe') {
         if (method === 'GET') {
