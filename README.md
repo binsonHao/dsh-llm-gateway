@@ -23,11 +23,11 @@ DSH  ──►  http://127.0.0.1:4000/v1  ──►  ch1 ─┐
 ## 安装
 
 ```bash
-# DSH 插件
-pnpm add dsh-llm-gateway
+# DSH 原生安装（推荐）
+dsh plugin --profile web add github:binsonHao/dsh-llm-gateway
 
-# 或直接从 GitHub
-pnpm add github:binsonHao/dsh-llm-gateway
+# 或用预构建包
+dsh plugin --profile web add -w https://github.com/binsonHao/dsh-llm-gateway/releases/download/v0.2.0/dsh-llm-gateway-0.2.0.tgz
 ```
 
 装完在「设置 → 插件」里启用，它会自己在 `<用户主目录>/.dsh/llm-gateway/` 建好工作目录。
