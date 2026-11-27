@@ -29,7 +29,8 @@
     "./gateway": "./lib/gateway.mjs",
     "./bin": "./bin/gateway.mjs",
     "./locale/*.json": "./locale/*.json",
-    "./icon": "./icon.svg"
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
   },
   "files": [
     "index.js",
