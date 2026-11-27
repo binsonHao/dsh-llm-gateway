@@ -6,7 +6,7 @@
  * `llm_gateway` agent tool and the Settings page, which reaches it over
  * same-origin HTTP routes registered on the harness web server.
  */
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -118,7 +118,9 @@ class Relay {
       healthy: summary?.healthy ?? 0,
       verified: summary?.verified ?? 0,
       modelCount: summary?.models ?? 0,
+      totalModelCount: summary?.totalModels ?? summary?.models ?? 0,
       models: this.gateway?.running ? this.gateway.models() : [],
+      allModels: this.gateway?.running ? this.gateway.allModels() : [],
       probe: readProbeSnapshot(this.settings.dir),
       pins: this.gateway?.running ? this.gateway.pins() : {},
     }
@@ -171,6 +173,22 @@ class Relay {
     return this.status()
   }
 
+  /** 写热门模型白名单到 gateway.json；空数组=恢复暴露全部。 */
+  async setAllowlist(models) {
+    const file = join(this.settings.dir, 'gateway.json')
+    let config = {}
+    try {
+      config = JSON.parse(readFileSync(file, 'utf8'))
+    } catch {
+      config = {}
+    }
+    config.models = models
+    writeFileSync(file, JSON.stringify(config, null, 2), 'utf8')
+    // config 是启动时读进内存的，改文件后必须重启进程才生效
+    if (this.gateway?.running) await this.restart()
+    return this.status()
+  }
+
   async probe() {
     if (this.probing) throw new Error('上一轮测速还没结束')
     this.probing = true
@@ -213,6 +231,13 @@ function route(relay) {
       }
       if (action === 'models' && method === 'GET') {
         return sendJson(response, 200, { models: relay.models() })
+      }
+      if (action === 'allowlist' && method === 'POST') {
+        const chunks = []
+        for await (const chunk of request) chunks.push(chunk)
+        const parsed = chunks.length > 0 ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}
+        const models = Array.isArray(parsed.models) ? parsed.models.map(String).filter(Boolean) : []
+        return sendJson(response, 200, relay.setAllowlist(models))
       }
       if (action === 'pin' && method === 'POST') {
         const chunks = []

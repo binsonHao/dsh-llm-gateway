@@ -74,7 +74,8 @@ window.__ModuleLoader__.load({
       lastError: '最近错误',
       okState: '正常',
       coolState: '冷却中',
-      modelList: '模型与通道选择（点击展开）',
+      modelList: '热门模型与通道选择',
+      showAll: '显示全部模型',
       pickHint: '点通道名把它设为该模型的首选；再点一次取消。首选通道不可用时会自动切下一个。',
       pinnedTag: '首选',
       noProbe: '未测',
@@ -128,7 +129,8 @@ window.__ModuleLoader__.load({
       lastError: 'Last error',
       okState: 'OK',
       coolState: 'Cooling',
-      modelList: 'Models and channel choice (click to expand)',
+      modelList: 'Popular models and channel choice',
+      showAll: 'Show every model',
       pickHint: 'Click a channel to prefer it for this model; click again to unselect. If it fails, the next one takes over.',
       pinnedTag: 'preferred',
       noProbe: 'not probed',
@@ -168,14 +170,22 @@ window.__ModuleLoader__.load({
       .lgw-badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; }
       .lgw-badge-ok { background: rgba(76,141,63,.16); color: #3f7a33; }
       .lgw-badge-cool { background: rgba(176,72,60,.16); color: #a8453a; }
-      .lgw-err { opacity: .6; font-size: 12px; max-width: 42ch; word-break: break-word; }
+      .lgw-err { opacity: .6; font-size: 12px; max-width: 16ch; word-break: break-word; cursor: help; }
       .lgw-row-dead td { opacity: .45; }
       .lgw-fast { color: #2f7d46; font-weight: 500; }
       .lgw-slow { color: #a8453a; }
       .lgw-mid { color: #9a6b18; }
       .lgw-sum { opacity: .64; font-size: 12px; margin: 0 0 10px; }
-      .lgw-picks { list-style: none; margin: 6px 0 0; padding: 0; }
-      .lgw-pick-row { padding: 8px 0; border-bottom: 1px solid var(--dsw-border, rgba(127,127,127,.12)); }
+      .lgw-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+      .lgw-toolbar-title { font-size: 13px; font-weight: 600; }
+      .lgw-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; opacity: .75; cursor: pointer; }
+      .lgw-group { border: 1px solid var(--dsw-border, rgba(127,127,127,.2)); border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
+      .lgw-group-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+      .lgw-group-name { font-size: 13px; font-weight: 600; }
+      .lgw-group-meta { font-size: 11px; opacity: .55; }
+      .lgw-picks { list-style: none; margin: 0; padding: 0; }
+      .lgw-pick-row { padding: 9px 0; border-bottom: 1px solid var(--dsw-border, rgba(127,127,127,.1)); }
+      .lgw-pick-row:last-child { border-bottom: 0; }
       .lgw-pick-name { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
       .lgw-chips { display: flex; flex-wrap: wrap; gap: 6px; }
       .lgw-chip { font: inherit; font-size: 12px; padding: 3px 9px; border-radius: 999px; cursor: pointer;
@@ -209,7 +219,7 @@ window.__ModuleLoader__.load({
       const [state, setState] = React.useState({ loading: true, data: null, error: null });
       const [busy, setBusy] = React.useState(null);
       const [notice, setNotice] = React.useState(null);
-      const [showModels, setShowModels] = React.useState(false);
+      const [showAll, setShowAll] = React.useState(false);
       const titleId = React.useId();
 
       const load = React.useCallback(async () => {
@@ -253,18 +263,32 @@ window.__ModuleLoader__.load({
       const probeRows = data?.probe?.rows ?? [];
       const probeByChannel = new globalThis.Map(probeRows.map(row => [row.channel, row]));
 
-      // 模型 -> 候选通道，按实测延迟排序（没测过的排后面）
-      const candidatesByModel = (() => {
+      // 候选通道：优先用测速结果（有真实延迟），没测过的回落到通道声明
+      const candidatesByModel = React.useMemo(() => {
         const map = new globalThis.Map();
         for (const row of probeRows) {
           if (!map.has(row.model)) map.set(row.model, []);
           map.get(row.model).push(row);
         }
+        const declared = new globalThis.Map();
+        for (const row of rows) {
+          for (const model of row.modelList ?? []) {
+            if (!declared.has(model)) declared.set(model, []);
+            declared.get(model).push(row);
+          }
+        }
+        // 测速里没有的模型，用它自己通道列表兜底——否则没测速就完全没得选
+        for (const [model, list] of declared) {
+          if (map.has(model)) continue;
+          map.set(model, list.map(row => ({
+            channel: row.id, site: row.site, ok: row.healthy, ms: row.latencyMs || 0, image: undefined,
+          })));
+        }
         for (const list of map.values()) {
           list.sort((a, b) => (a.ok === b.ok ? (a.ms || 1e9) - (b.ms || 1e9) : a.ok ? -1 : 1));
         }
         return map;
-      })();
+      }, [probeRows, rows]);
 
       function channelsFor(model) {
         const list = candidatesByModel.get(model) ?? [];
@@ -280,8 +304,21 @@ window.__ModuleLoader__.load({
           .sort((a, b) => (a.pinned === b.pinned ? (a.dead === b.dead ? a.ms - b.ms : a.dead ? 1 : -1) : a.pinned ? -1 : 1));
       }
 
-      async function choosePin(model, channelId) {
-        try {
+      // 按厂商家族分组，231 个模型平铺没法看
+      const groupedModels = (() => {
+        const source = showAll ? (data?.allModels ?? data?.models ?? []) : (data?.models ?? []);
+        const map = new globalThis.Map();
+        for (const model of source) {
+          const family = modelFamily(model);
+          if (!map.has(family)) map.set(family, []);
+          map.get(family).push(model);
+        }
+        return [...map.entries()]
+          .map(([family, models]) => ({ family, models: models.sort() }))
+          .sort((a, b) => b.models.length - a.models.length || a.family.localeCompare(b.family));
+      })();
+
+      async function choosePin(model, channelId) {        try {
           const fresh = await api.pin(model, channelId);
           setState({ loading: false, data: fresh, error: null });
           setNotice({ tone: 'ok', text: channelId ? `${model} → ${channelId}` : `${model} ${t('clearPin')}` });
@@ -360,38 +397,75 @@ window.__ModuleLoader__.load({
                   : '—'),
                 h('td', null, String(row.fail)),
                 h('td', null, row.latencyMs > 0 ? `${Math.round(row.latencyMs)}ms` : '—'),
-                h('td', null, h('span', { className: 'lgw-err' }, row.lastError || '—')));
+                h('td', null, h('span', { className: 'lgw-err', title: row.lastError || '' },
+                  row.lastError ? shortError(row.lastError) : '—')));
             })))) : null,
 
         data?.running && data.models?.length > 0 ? h('div', { className: 'lgw-card' },
-          h('button', {
-            type: 'button', className: 'lgw-btn', onClick: () => setShowModels(value => !value),
-            'aria-expanded': showModels,
-          }, `${t('modelList')} · ${data.models.length}`),
-          showModels
-            ? h('div', null,
-                h('p', { className: 'lgw-sum', style: { marginTop: 10 } }, t('pickHint')),
-                h('ul', { className: 'lgw-picks' }, data.models.map(model => {
-                  const candidates = channelsFor(model);
-                  const pinnedNow = data.pins?.[model]?.[0];
-                  if (candidates.length === 0) return h('li', { key: model, className: 'lgw-pick-row' }, h('code', null, model), ' ', t('noProbe'));
-                  return h('li', { key: model, className: 'lgw-pick-row' },
-                    h('div', { className: 'lgw-pick-name' },
-                      h('code', null, model),
-                      pinnedNow ? h('span', { className: 'lgw-badge lgw-badge-pin' }, t('pinnedTag')) : null,
-                      pinnedNow ? h('button', {
-                        type: 'button', className: 'lgw-mini',
-                        onClick: () => choosePin(model, null),
-                      }, t('clearPin')) : null),
-                    h('div', { className: 'lgw-chips' }, candidates.map(candidate => h('button', {
-                      key: candidate.id,
-                      type: 'button',
-                      className: `lgw-chip${candidate.pinned ? ' lgw-chip-on' : ''}${candidate.dead ? ' lgw-chip-dead' : ''}`,
-                      title: candidate.title,
-                      onClick: () => choosePin(model, candidate.pinned ? null : candidate.id),
-                    }, h('span', { className: latencyClass(candidate.ms) }, candidate.ms ? `${candidate.ms}ms` : '—'), ' ', candidate.id))));
-                })))
-            : null) : null);
+          h('div', { className: 'lgw-toolbar' },
+            h('span', { className: 'lgw-toolbar-title' }, `${t('modelList')} · ${data.models.length}`),
+            h('label', { className: 'lgw-switch' },
+              h('input', {
+                type: 'checkbox',
+                checked: showAll,
+                onChange: event => setShowAll(event.target.checked),
+              }),
+              t('showAll'))),
+          h('p', { className: 'lgw-sum' }, t('pickHint')),
+          groupedModels.map(group => h('div', { key: group.family, className: 'lgw-group' },
+            h('div', { className: 'lgw-group-head' },
+              h('span', { className: 'lgw-group-name' }, group.family),
+              h('span', { className: 'lgw-group-meta' }, `${group.models.length}`)),
+            h('ul', { className: 'lgw-picks' }, group.models.map(model => {
+              const candidates = channelsFor(model);
+              const pinnedNow = data.pins?.[model]?.[0];
+              if (candidates.length === 0) {
+                return h('li', { key: model, className: 'lgw-pick-row' },
+                  h('code', null, model), ' ',
+                  h('span', { className: 'lgw-err' }, t('noProbe')));
+              }
+              return h('li', { key: model, className: 'lgw-pick-row' },
+                h('div', { className: 'lgw-pick-name' },
+                  h('code', null, model),
+                  pinnedNow ? h('span', { className: 'lgw-badge lgw-badge-pin' }, t('pinnedTag')) : null,
+                  pinnedNow ? h('button', {
+                    type: 'button', className: 'lgw-mini',
+                    onClick: () => choosePin(model, null),
+                  }, t('clearPin')) : null),
+                h('div', { className: 'lgw-chips' }, candidates.map(candidate => h('button', {
+                  key: candidate.id,
+                  type: 'button',
+                  className: `lgw-chip${candidate.pinned ? ' lgw-chip-on' : ''}${candidate.dead ? ' lgw-chip-dead' : ''}`,
+                  title: candidate.title,
+                  onClick: () => choosePin(model, candidate.pinned ? null : candidate.id),
+                }, h('span', { className: latencyClass(candidate.ms) }, candidate.ms ? `${candidate.ms}ms` : '—'), ' ', candidate.id))));
+            })))))
+          : null);
+    }
+
+    /** 错误文本常常是几百字的 JSON，整段塞进表格会把布局撑散——只留能看懂的开头。 */
+    function shortError(raw) {
+      const text = String(raw).replace(/\s+/g, ' ').trim();
+      const match = text.match(/"message"\s*:\s*"([^"]{0,80})"/);
+      const head = match ? match[1] : text;
+      return head.length > 42 ? `${head.slice(0, 42)}…` : head;
+    }
+
+    function modelFamily(model) {
+      const head = String(model).split('/')[0].toLowerCase();
+      if (head.includes('deepseek')) return 'DeepSeek';
+      if (head.includes('grok')) return 'Grok';
+      if (head.includes('glm')) return 'GLM';
+      if (head.includes('kimi') || head.includes('moonshot')) return 'Kimi';
+      if (head.includes('qwen')) return 'Qwen';
+      if (head.includes('claude')) return 'Claude';
+      if (head.includes('gemini')) return 'Gemini';
+      if (head.includes('gpt') || head.includes('o1') || head.includes('o3')) return 'OpenAI';
+      if (head.includes('minimax')) return 'MiniMax';
+      if (head.includes('step')) return 'Step';
+      if (head.includes('embed') || head.includes('rerank') || head.includes('bge')) return 'Embedding';
+      const clean = head.replace(/^[\d,.]+$/, '').trim();
+      return clean ? clean.charAt(0).toUpperCase() + clean.slice(1) : '其他';
     }
 
     function latencyClass(ms) {
