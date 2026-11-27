@@ -8,28 +8,26 @@ window.__ModuleLoader__.load({
     const PACKAGE = 'dsh-llm-gateway';
     const NAMESPACE = 'llmGateway';
 
-    const passthrough = { parse: value => value };
-    const descriptor = method => ({
-      id: `${PACKAGE}#${NAMESPACE}/${method}`,
-      service: NAMESPACE,
-      namespace: NAMESPACE,
-      method,
-      invocation: { kind: 'direct' },
-      parameters: [{
-        name: 'request', wire: 'request', source: 'json',
-        codec: {
-          mode: 'strict', typeSymbol: `${PACKAGE}#LlmGatewayRequest`,
-          schema: passthrough, create: () => passthrough, jsonSchema: { type: 'object' },
-        },
-      }],
-      result: {
-        mode: 'strict', typeSymbol: `${PACKAGE}#LlmGatewayStatus`,
-        schema: passthrough, create: () => passthrough, jsonSchema: {},
-      },
-    });
-    const REMOTE = {
-      package: PACKAGE,
-      descriptors: ['status', 'start', 'stop', 'restart', 'reload', 'models'].map(descriptor),
+    const API = '/llm-gateway/api';
+
+    async function callApi(action, options = {}) {
+      const response = await fetch(`${API}/${action}`, {
+        method: options.method ?? (action === 'status' || action === 'models' ? 'GET' : 'POST'),
+        headers: { accept: 'application/json' },
+        cache: 'no-store',
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error?.message || `HTTP ${response.status}`);
+      return payload;
+    }
+
+    const api = {
+      status: () => callApi('status'),
+      start: () => callApi('start'),
+      stop: () => callApi('stop'),
+      restart: () => callApi('restart'),
+      reload: () => callApi('reload'),
+      models: () => callApi('models'),
     };
 
     const zh = {
@@ -146,25 +144,6 @@ window.__ModuleLoader__.load({
       try { return JSON.stringify(reason); } catch { return String(reason); }
     }
 
-    function createApi(ctx, getMountError) {
-      const call = async (method, request) => {
-        const namespace = ctx.remote.namespaces.get(NAMESPACE)?.service;
-        const fn = namespace?.[method];
-        if (typeof fn !== 'function') throw getMountError() ?? new Error(`llmGateway Remote method "${method}" is not mounted`);
-        const rpc = await fn(request);
-        if (!rpc || rpc.ok !== true) throw new Error(rpc?.error?.message || `llmGateway Remote call "${method}" failed`);
-        return rpc.value;
-      };
-      return {
-        status: () => call('status', {}),
-        start: () => call('start', {}),
-        stop: () => call('stop', {}),
-        restart: () => call('restart', {}),
-        reload: () => call('reload', {}),
-        models: () => call('models', {}),
-      };
-    }
-
     function RelayGlyph({ size = 16 }) {
       return h('svg', {
         width: size, height: size, viewBox: '0 0 24 24', fill: 'none',
@@ -173,7 +152,7 @@ window.__ModuleLoader__.load({
     }
 
     function LlmGatewayPage(props) {
-      const { api, t } = props;
+      const { t } = props;
       const [state, setState] = React.useState({ loading: true, data: null, error: null });
       const [busy, setBusy] = React.useState(null);
       const [notice, setNotice] = React.useState(null);
@@ -273,20 +252,11 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['remote', 'slots', 'locale'],
-      async apply(ctx) {
-        let mountError = null;
-        try {
-          const disposeMount = await ctx.remote.$mount(REMOTE);
-          ctx.effect(() => disposeMount, 'llm-gateway.remote');
-        } catch (reason) {
-          mountError = reason instanceof Error ? reason : new Error(String(reason));
-          console.error('[llm-gateway] Remote mount failed', reason);
-        }
+      inject: ['slots', 'locale'],
+      apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'llm-gateway.dictionaries');
         const t = ctx.locale.bind(NS);
-        const api = createApi(ctx, () => mountError);
-        const injected = () => ({ api, t });
+        const injected = () => ({ t });
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section', id: SECTION_ID, order: 28, label: () => t('nav'), locale: NS, inject: injected,
         }, LlmGatewayPage));

@@ -19,3 +19,9 @@
 - Host↔Client 走 Typert Remote（`registerLlmGatewayRemote`），与 `dsh-workspace-links` 同一套做法。
 - Host 半区改为默认导出的服务类 `LlmGatewayService`；配置从 `cordis.patch.yml` 读取（`enabled` / `host` / `port` / `dir`）。
 - locale 增加 `meta.detail`，插件详情页指向 `docs/DETAIL.md`。
+
+## 0.4.0
+
+- **改走同源 HTTP 路由**：宿主用 `ctx.webServer.register` 暴露 `/llm-gateway/api/*`，设置页直接 `fetch`。
+  原先的 Typert Remote 方案在 `link:` 安装下会被 "Receiver must be an instance of class LlmGatewayService" 拒绝。
+- 移除 `remote.js` 与 `@deepseek-ai/dsh-typert-protocol` 依赖；Host 半区回到 `export function apply` 形态，`Config` 表单随之恢复。

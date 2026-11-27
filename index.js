@@ -2,21 +2,39 @@
  * Host half of the local LLM relay.
  *
  * The relay runs inside the DSH host process — no child process, no Python.
- * Enabling this plugin starts it, disabling stops it. The same service object
- * backs both the `llm_gateway` agent tool and the Settings page (via remote.js).
+ * Enabling this plugin starts it, disabling stops it. The same service backs the
+ * `llm_gateway` agent tool and the Settings page, which reaches it over
+ * same-origin HTTP routes registered on the harness web server.
  */
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import Schema from '@deepseek-ai/schemastery'
 import { createGateway, ensureConfig } from './lib/gateway.mjs'
-import { registerLlmGatewayRemote } from './remote.js'
 
 export const name = 'llm-gateway'
-export const inject = ['tools', 'typert']
+export const inject = ['tools', 'webServer']
+
+export const Config = Schema.object({
+  enabled: Schema.boolean()
+    .default(true)
+    .description('插件启用时自动启动本地中转站；关闭后可在设置页或用 llm_gateway 工具手动启动。'),
+  host: Schema.string()
+    .default('127.0.0.1')
+    .description('监听地址，保持 127.0.0.1 表示只允许本机访问。'),
+  port: Schema.natural()
+    .min(1)
+    .max(65535)
+    .default(4000)
+    .description('监听端口，DSH 里的 provider baseURL 要指向同一端口。'),
+  dir: Schema.string()
+    .default('')
+    .description('工作目录（放 channels.json、health.json、日志）；留空表示 <用户主目录>/.dsh/llm-gateway。'),
+})
 
 const PACKAGE_ROOT = dirname(fileURLToPath(import.meta.url))
+const API_PREFIX = '/llm-gateway/api'
 
 /** Per-user working directory, so an installed plugin never depends on the author's paths. */
 export function defaultGatewayDir() {
@@ -51,7 +69,7 @@ export function renderStatus(payload, options = {}) {
   const lines = []
   lines.push(payload.running
     ? `本地中转站：运行中 ${payload.base}`
-    : `本地中转站：未运行${payload.base ? `（配置端口 ${payload.base}）` : ''}`)
+    : `本地中转站：未运行${payload.base ? `（预期出口 ${payload.base}）` : ''}`)
 
   if (payload.running) {
     lines.push(`通道 ${payload.channels.length} 条（健康 ${payload.healthy}，实测通过 ${payload.verified}），`
@@ -75,44 +93,24 @@ export function renderStatus(payload, options = {}) {
   return lines.join('\n')
 }
 
-export default class LlmGatewayService extends TypertRemoteService {
-  static inject = inject
-
-  constructor(ctx, config = {}) {
-    super(ctx, 'llmGateway')
-    this.settings = {
-      enabled: config?.enabled ?? true,
-      host: config?.host || '127.0.0.1',
-      port: Number(config?.port ?? 4000),
-      dir: String(config?.dir ?? '').replace(/\\/g, '/').replace(/\/+$/, '') || defaultGatewayDir(),
-    }
+/** Owns one gateway instance for the lifetime of the plugin. */
+class Relay {
+  constructor(settings, logger) {
+    this.settings = settings
+    this.logger = logger
     this.gateway = null
     this.lastError = null
-
-    ctx.effect(() => registerLlmGatewayRemote(ctx), 'llm-gateway.remote')
-    ctx.effect(() => ctx.tools.register(this.#tool()), 'llm-gateway.tool')
-    ctx.effect(() => () => {
-      if (this.gateway?.running) {
-        this.gateway.persist()
-        this.gateway.stop().catch(() => {})
-      }
-    }, 'llm-gateway.lifetime')
-
-    if (this.settings.enabled) {
-      this.start().catch(error => ctx.logger?.warn?.(`llm-gateway 未启动：${error?.message ?? error}`))
-    }
   }
 
-  get #base() {
+  get base() {
     return `http://${this.settings.host}:${this.settings.port}/v1`
   }
 
-  /** Everything the Settings page renders, in one call. */
   status() {
     const summary = this.gateway?.running ? this.gateway.summary() : null
     return {
       running: Boolean(this.gateway?.running),
-      base: this.#base,
+      base: this.base,
       dir: this.settings.dir,
       detail: this.lastError ?? undefined,
       channels: summary?.rows ?? [],
@@ -131,7 +129,7 @@ export default class LlmGatewayService extends TypertRemoteService {
     try {
       await this.gateway.start()
       this.lastError = null
-      this.ctx.logger?.info?.(`llm-gateway listening on ${this.#base}`)
+      this.logger?.info?.(`llm-gateway listening on ${this.base}`)
     } catch (error) {
       this.gateway = null
       this.lastError = error?.code === 'EADDRINUSE'
@@ -164,48 +162,113 @@ export default class LlmGatewayService extends TypertRemoteService {
     return this.gateway?.running ? this.gateway.models() : []
   }
 
-  #tool() {
-    const self = this
-    return {
-      name: 'llm_gateway',
-      description: '查看和管理本机 LLM 聚合中转站：把多个 OpenAI 兼容上游合并成一个出口，同名模型自动在通道间故障转移。'
-        + 'status 返回运行状态与通道健康度；start/stop/restart 控制服务；reload 在改完 channels.json 后热加载；models 列出可调度模型。',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: {
-            type: 'string',
-            enum: ['status', 'start', 'stop', 'restart', 'reload', 'models'],
-            description: '要执行的动作，默认 status。',
-          },
-        },
-        additionalProperties: false,
-      },
-      output: {
-        schema: { type: 'string' },
-        render: (_args, value) => [{ type: 'text', text: value }],
-      },
-      timeoutMs: 60_000,
-      isConcurrencySafe: args => (args?.action ?? 'status') !== 'restart',
-      presentCall: args => ({
-        card: 'generic',
-        title: `本地中转站：${args?.action ?? 'status'}`,
-        kind: ['start', 'stop', 'restart', 'reload'].includes(args?.action) ? 'edit' : 'read',
-        rawInput: args,
-      }),
-      async execute({ action = 'status' } = {}) {
-        switch (action) {
-          case 'start': return renderStatus(await self.start())
-          case 'stop': return renderStatus(await self.stop())
-          case 'restart': return renderStatus(await self.restart())
-          case 'reload': {
-            const result = await self.reload()
-            return `${renderStatus(result.status)}\n\n已热加载：${result.channels} 条通道 / ${result.models} 个模型`
-          }
-          case 'models': return renderStatus(self.status(), { withModels: true })
-          default: return renderStatus(self.status())
+  dispose() {
+    if (!this.gateway?.running) return
+    this.gateway.persist()
+    this.gateway.stop().catch(() => {})
+    this.gateway = null
+  }
+}
+
+function sendJson(response, status, payload) {
+  const body = Buffer.from(JSON.stringify(payload))
+  response.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': body.length,
+    'cache-control': 'no-store',
+  })
+  response.end(body)
+}
+
+/** Same-origin JSON API the Settings page talks to. */
+function route(relay) {
+  const handle = async (request, response) => {
+    const url = new URL(request.url ?? '/', 'http://placeholder')
+    const action = url.pathname.slice(API_PREFIX.length).replace(/^\/+/, '')
+    const method = (request.method ?? 'GET').toUpperCase()
+
+    try {
+      if (action === 'status' && method === 'GET') {
+        return sendJson(response, 200, relay.status())
+      }
+      if (action === 'models' && method === 'GET') {
+        return sendJson(response, 200, { models: relay.models() })
+      }
+      if (['start', 'stop', 'restart', 'reload'].includes(action)) {
+        if (method !== 'POST') {
+          response.writeHead(405, { allow: 'POST' })
+          return response.end()
         }
-      },
+        if (action === 'start') return sendJson(response, 200, await relay.start())
+        if (action === 'stop') return sendJson(response, 200, await relay.stop())
+        if (action === 'restart') return sendJson(response, 200, await relay.restart())
+        const result = await relay.reload()
+        return sendJson(response, 200, { ...result, status: result.status })
+      }
+      return sendJson(response, 404, { error: { message: `no route ${method} ${url.pathname}` } })
+    } catch (error) {
+      return sendJson(response, 500, { error: { message: String(error?.message ?? error) } })
     }
+  }
+
+  return { kind: 'prefix', path: API_PREFIX, handler: handle }
+}
+
+export function apply(ctx, config) {
+  const settings = {
+    enabled: config?.enabled ?? true,
+    host: config?.host || '127.0.0.1',
+    port: Number(config?.port ?? 4000),
+    dir: String(config?.dir ?? '').replace(/\\/g, '/').replace(/\/+$/, '') || defaultGatewayDir(),
+  }
+  const relay = new Relay(settings, ctx.logger)
+
+  ctx.effect(() => ctx.webServer.register(route(relay)), 'llm-gateway.routes')
+  ctx.effect(() => () => relay.dispose(), 'llm-gateway.lifetime')
+
+  ctx.effect(() => ctx.tools.register({
+    name: 'llm_gateway',
+    description: '查看和管理本机 LLM 聚合中转站：把多个 OpenAI 兼容上游合并成一个出口，同名模型自动在通道间故障转移。'
+      + 'status 返回运行状态与通道健康度；start/stop/restart 控制服务；reload 在改完 channels.json 后热加载；models 列出可调度模型。',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['status', 'start', 'stop', 'restart', 'reload', 'models'],
+          description: '要执行的动作，默认 status。',
+        },
+      },
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
+    timeoutMs: 60_000,
+    isConcurrencySafe: args => (args?.action ?? 'status') !== 'restart',
+    presentCall: args => ({
+      card: 'generic',
+      title: `本地中转站：${args?.action ?? 'status'}`,
+      kind: ['start', 'stop', 'restart', 'reload'].includes(args?.action) ? 'edit' : 'read',
+      rawInput: args,
+    }),
+    async execute({ action = 'status' } = {}) {
+      switch (action) {
+        case 'start': return renderStatus(await relay.start())
+        case 'stop': return renderStatus(await relay.stop())
+        case 'restart': return renderStatus(await relay.restart())
+        case 'reload': {
+          const result = await relay.reload()
+          return `${renderStatus(result.status)}\n\n已热加载：${result.channels} 条通道 / ${result.models} 个模型`
+        }
+        case 'models': return renderStatus(relay.status(), { withModels: true })
+        default: return renderStatus(relay.status())
+      }
+    },
+  }), 'llm-gateway.tool')
+
+  if (settings.enabled) {
+    relay.start().catch(error => ctx.logger?.warn?.(`llm-gateway 未启动：${error?.message ?? error}`))
   }
 }
