@@ -1,6 +1,6 @@
 {
   "name": "dsh-llm-gateway",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Local LLM relay for DeepSeek Harness: merges many OpenAI-compatible upstreams behind one endpoint with automatic failover. Runs in-process, zero runtime dependencies.",
   "license": "MIT",
   "author": "binsonHao",
@@ -37,6 +37,7 @@
     "index.js",
     "client.js",
     "lib/gateway.mjs",
+    "lib/probe.mjs",
     "bin/gateway.mjs",
     "cordis.patch.yml",
     "channels.example.json",

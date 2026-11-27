@@ -12,6 +12,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Schema from '@deepseek-ai/schemastery'
 import { createGateway, ensureConfig } from './lib/gateway.mjs'
+import { probeAll, readProbeSnapshot } from './lib/probe.mjs'
 
 export const name = 'llm-gateway'
 export const inject = ['tools', 'webServer']
@@ -118,6 +119,7 @@ class Relay {
       verified: summary?.verified ?? 0,
       modelCount: summary?.models ?? 0,
       models: this.gateway?.running ? this.gateway.models() : [],
+      probe: readProbeSnapshot(this.settings.dir),
     }
   }
 
@@ -162,6 +164,17 @@ class Relay {
     return this.gateway?.running ? this.gateway.models() : []
   }
 
+  async probe() {
+    if (this.probing) throw new Error('上一轮测速还没结束')
+    this.probing = true
+    try {
+      ensureGatewayLayout(this.settings.dir)
+      return await probeAll({ dir: this.settings.dir })
+    } finally {
+      this.probing = false
+    }
+  }
+
   dispose() {
     if (!this.gateway?.running) return
     this.gateway.persist()
@@ -193,6 +206,16 @@ function route(relay) {
       }
       if (action === 'models' && method === 'GET') {
         return sendJson(response, 200, { models: relay.models() })
+      }
+      if (action === 'probe') {
+        if (method === 'GET') {
+          return sendJson(response, 200, { snapshot: readProbeSnapshot(relay.settings.dir) })
+        }
+        if (method !== 'POST') {
+          response.writeHead(405, { allow: 'GET, POST' })
+          return response.end()
+        }
+        return sendJson(response, 200, { snapshot: await relay.probe() })
       }
       if (['start', 'stop', 'restart', 'reload'].includes(action)) {
         if (method !== 'POST') {

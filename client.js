@@ -28,6 +28,8 @@ window.__ModuleLoader__.load({
       restart: () => callApi('restart'),
       reload: () => callApi('reload'),
       models: () => callApi('models'),
+      probe: () => callApi('probe', { method: 'POST' }),
+      probeSnapshot: () => callApi('probe'),
     };
 
     const zh = {
@@ -66,6 +68,19 @@ window.__ModuleLoader__.load({
       reloaded: '已热加载',
       failed: '操作失败：{message}',
       cannot: '无法调用宿主服务：{message}',
+      probe: '测速',
+      probing: '测速中…',
+      probeResult: '最近测速：{time}，{ok}/{total} 通道可用，{image} 个支持图片',
+      probeNever: '还没测过。点「测速」并发跑一遍全部通道，会消耗少量上游额度。',
+      probeDone: '测速完成：{ok}/{total} 可用，「{fastest}」最快 {ms}',
+      probeFailed: '测速失败：{message}',
+      colLatency: '实测延迟',
+      colImage: '图片',
+      colModel: '代表模型',
+      unprobed: '未测',
+      imageYes: '支持',
+      imageNo: '不支持',
+      imageSkipped: '—',
     };
     const en = {
       nav: 'Local relay',
@@ -133,6 +148,11 @@ window.__ModuleLoader__.load({
       .lgw-badge-ok { background: rgba(76,141,63,.16); color: #3f7a33; }
       .lgw-badge-cool { background: rgba(176,72,60,.16); color: #a8453a; }
       .lgw-err { opacity: .6; font-size: 12px; max-width: 42ch; word-break: break-word; }
+      .lgw-row-dead td { opacity: .45; }
+      .lgw-fast { color: #2f7d46; font-weight: 500; }
+      .lgw-slow { color: #a8453a; }
+      .lgw-mid { color: #9a6b18; }
+      .lgw-sum { opacity: .64; font-size: 12px; margin: 0 0 10px; }
       .lgw-notice { padding: 8px 12px; border-radius: 8px; font-size: 13px; background: rgba(127,127,127,.12); }
       .lgw-notice-error { background: rgba(176,72,60,.14); color: #a8453a; }
       .lgw-models { margin: 0; padding: 8px 0 0 18px; font-size: 12px; columns: 2; column-gap: 24px; opacity: .8; }
@@ -174,6 +194,17 @@ window.__ModuleLoader__.load({
         setBusy(action);
         setNotice(null);
         try {
+          if (action === 'probe') {
+            const { snapshot } = await api.probe();
+            const fresh = await api.status();
+            setState({ loading: false, data: fresh, error: null });
+            const best = (snapshot?.rows ?? []).find(row => row.ok);
+            setNotice({ tone: 'ok', text: t('probeDone', {
+              ok: snapshot?.ok ?? 0, total: snapshot?.total ?? 0,
+              fastest: best?.channel ?? '—', ms: `${best?.ms ?? 0}ms`,
+            }) });
+            return;
+          }
           const data = action === 'reload' ? (await api.reload()).status : await api[action]();
           setState({ loading: false, data, error: null });
           setNotice({ tone: 'ok', text: t(action === 'start' ? 'started' : action === 'stop' ? 'stoppedNotice' : action === 'restart' ? 'restarted' : 'reloaded') });
@@ -186,6 +217,8 @@ window.__ModuleLoader__.load({
 
       const data = state.data;
       const rows = data?.channels ?? [];
+      const probeRows = data?.probe?.rows ?? [];
+      const probeByChannel = new globalThis.Map(probeRows.map(row => [row.channel, row]));
 
       return h('section', { className: 'lgw-page', 'aria-labelledby': titleId },
         h('style', null, styles),
@@ -199,6 +232,7 @@ window.__ModuleLoader__.load({
               : h('button', { type: 'button', className: 'lgw-btn lgw-btn-primary', disabled: Boolean(busy), onClick: () => run('start') }, busy === 'start' ? t('busy') : t('start')),
             data?.running ? h('button', { type: 'button', className: 'lgw-btn', disabled: Boolean(busy), onClick: () => run('stop') }, busy === 'stop' ? t('busy') : t('stop')) : null,
             h('button', { type: 'button', className: 'lgw-btn', disabled: Boolean(busy) || !data?.running, onClick: () => run('reload') }, busy === 'reload' ? t('busy') : t('reload')),
+            h('button', { type: 'button', className: 'lgw-btn', disabled: Boolean(busy) || !data?.running, onClick: () => run('probe') }, busy === 'probe' ? t('probing') : t('probe')),
             h('button', { type: 'button', className: 'lgw-btn', disabled: Boolean(busy), onClick: () => { setBusy('refresh'); load().finally(() => setBusy(null)); } }, busy === 'refresh' ? t('busy') : t('refresh')))),
 
         state.error ? h('div', { className: 'lgw-notice lgw-notice-error', role: 'alert' }, t('cannot', { message: state.error })) : null,
@@ -222,22 +256,42 @@ window.__ModuleLoader__.load({
           : null,
 
         data?.running && rows.length > 0 ? h('div', { className: 'lgw-card' },
+          probeRows.length > 0
+            ? h('p', { className: 'lgw-sum' }, t('probeResult', {
+                time: new Date(data.probe.at).toLocaleTimeString(),
+                ok: data.probe.ok, total: data.probe.total, image: data.probe.image,
+              }))
+            : h('p', { className: 'lgw-sum' }, t('probeNever')),
           h('table', { className: 'lgw-table' },
             h('thead', null, h('tr', null,
               h('th', null, t('channelId')),
               h('th', null, t('site')),
               h('th', null, t('state')),
+              h('th', null, t('colLatency')),
+              h('th', null, t('colImage')),
               h('th', null, t('fails')),
               h('th', null, t('latency')),
               h('th', null, t('lastError')))),
-            h('tbody', null, rows.map(row => h('tr', { key: row.id },
-              h('td', null, h('code', null, row.id)),
-              h('td', null, row.site),
-              h('td', null, h('span', { className: row.healthy ? 'lgw-badge lgw-badge-ok' : 'lgw-badge lgw-badge-cool' },
-                row.healthy ? t('okState') : `${t('coolState')} ${row.cooldown}s`)),
-              h('td', null, String(row.fail)),
-              h('td', null, row.latencyMs > 0 ? `${row.latencyMs}ms` : '—'),
-              h('td', null, h('span', { className: 'lgw-err' }, row.lastError || '—'))))))) : null,
+            h('tbody', null, rows.map(row => {
+              const probe = probeByChannel.get(row.id);
+              const dead = probe ? !probe.ok : false;
+              return h('tr', { key: row.id, className: dead ? 'lgw-row-dead' : undefined },
+                h('td', null, h('code', null, row.id)),
+                h('td', null, row.site),
+                h('td', null, h('span', { className: row.healthy ? 'lgw-badge lgw-badge-ok' : 'lgw-badge lgw-badge-cool' },
+                  row.healthy ? t('okState') : `${t('coolState')} ${row.cooldown}s`)),
+                h('td', null, probe
+                  ? (probe.ok
+                    ? h('span', { className: latencyClass(probe.ms) }, `${probe.ms}ms`)
+                    : h('span', { className: 'lgw-slow' }, `✗ ${probe.status || probe.error?.slice(0, 18) || ''}`))
+                  : h('span', { className: 'lgw-err' }, t('unprobed'))),
+                h('td', null, probe
+                  ? (probe.ok ? (probe.image ? t('imageYes') : t('imageNo')) : t('imageSkipped'))
+                  : '—'),
+                h('td', null, String(row.fail)),
+                h('td', null, row.latencyMs > 0 ? `${Math.round(row.latencyMs)}ms` : '—'),
+                h('td', null, h('span', { className: 'lgw-err' }, row.lastError || '—')));
+            })))) : null,
 
         data?.running && data.models?.length > 0 ? h('div', { className: 'lgw-card' },
           h('button', {
@@ -245,6 +299,13 @@ window.__ModuleLoader__.load({
             'aria-expanded': showModels,
           }, `${t('modelList')} · ${data.models.length}`),
           showModels ? h('ul', { className: 'lgw-models' }, data.models.map(id => h('li', { key: id }, id))) : null) : null);
+    }
+
+    function latencyClass(ms) {
+      if (!ms) return 'lgw-err';
+      if (ms <= 8000) return 'lgw-fast';
+      if (ms <= 18000) return 'lgw-mid';
+      return 'lgw-slow';
     }
 
     function SettingsRelayIcon({ size = 16 }) {
