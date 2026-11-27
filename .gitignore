@@ -6,3 +6,4 @@ channels.json
 gateway.json
 health.json
 .selftest-dir/
+*.tgz
