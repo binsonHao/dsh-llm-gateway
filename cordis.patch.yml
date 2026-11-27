@@ -3,7 +3,6 @@
       name: 'dsh-llm-gateway'
       config:
         enabled: true
-        pythonPath: python
-        scriptDir: F:/workspace/llm-gateway
+        host: 127.0.0.1
         port: 4000
-        startupTimeoutMs: 30000
+        dir: ''
