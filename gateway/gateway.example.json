@@ -1,0 +1,8 @@
+{
+ "host": "127.0.0.1",
+ "port": 4000,
+ "apiKey": "sk-local-REPLACE_ME",
+ "requestTimeout": 60,
+ "maxAttempts": 4,
+ "totalBudget": 100
+}

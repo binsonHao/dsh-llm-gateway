@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "channels": [
+    {
+      "id": "ch1-example",
+      "site": "示例站点",
+      "base": "https://api.example.com",
+      "key": "sk-你的令牌",
+      "priority": 90,
+      "models": ["gpt-4o-mini", "deepseek-chat"]
+    },
+    {
+      "id": "ch2-example",
+      "site": "另一个站点（同模型可做备份）",
+      "base": "https://api2.example.com",
+      "key": "sk-另一个令牌",
+      "priority": 80,
+      "models": ["gpt-4o-mini"]
+    }
+  ]
+}

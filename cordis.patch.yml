@@ -1,0 +1,9 @@
+- insert:
+    - id: llm-gateway
+      name: 'dsh-llm-gateway'
+      config:
+        enabled: true
+        pythonPath: python
+        scriptDir: F:/workspace/llm-gateway
+        port: 4000
+        startupTimeoutMs: 30000

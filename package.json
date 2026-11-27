@@ -1,0 +1,72 @@
+{
+  "name": "dsh-llm-gateway",
+  "version": "0.1.0",
+  "description": "Host-managed local LLM relay for DeepSeek Harness: aggregates many OpenAI-compatible upstream channels behind one endpoint, with automatic failover, and exposes a single tool to inspect and control it.",
+  "license": "MIT",
+  "author": "binsonHao",
+  "homepage": "https://github.com/binsonHao/dsh-llm-gateway#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/binsonHao/dsh-llm-gateway.git"
+  },
+  "bugs": {
+    "url": "https://github.com/binsonHao/dsh-llm-gateway/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "llm",
+    "gateway",
+    "openai-compatible",
+    "failover"
+  ],
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./patch": "./cordis.patch.yml",
+    "./gateway/*": "./gateway/*",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "gateway/gateway.py",
+    "gateway/build_channels.py",
+    "gateway/gateway.example.json",
+    "gateway/gen_dsh_snippet.py",
+    "channels.example.json",
+    "CHANGELOG.md",
+    "locale/*.json",
+    "docs/DETAIL.md",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.2-rc.3 <0.3.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "test": "node selftest.mjs"
+  }
+}
