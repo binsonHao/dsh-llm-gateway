@@ -1,42 +1,23 @@
-/** Offline harness: mount the plugin against a fake Cordis context so a broken contract fails here, not in DSH. */
-import { apply, Config, ensureGatewayLayout, defaultGatewayDir, name, inject } from './index.js'
+/** Offline checks: import surface, pure helpers, and a fake-context smoke mount. */
+import { defaultGatewayDir, ensureGatewayLayout, renderStatus } from './index.js'
+import { DESCRIPTORS, NAMESPACE, PACKAGE } from './remote.js'
 
-const tool = { definition: null }
-const disposers = []
-const logs = []
-
-const ctx = {
-  logger: { info: m => logs.push(`INFO ${m}`), warn: m => logs.push(`WARN ${m}`) },
-  tools: { register(d) { tool.definition = d; return () => { tool.definition = null } } },
-  effect(factory, label) {
-    const disposer = factory()
-    if (typeof disposer === 'function') disposers.push({ label, disposer })
-    return disposer
-  },
-}
-
-console.log('name =', name, '| inject =', inject)
-console.log('config defaults =', JSON.stringify(Config({})))
 console.log('default dir =', defaultGatewayDir())
+console.log('remote =', PACKAGE, '/', NAMESPACE, '| methods:', DESCRIPTORS.map(d => d.method).join(','))
 
 const probeDir = 'F:/workspace/.selftest-dir'
 try { ensureGatewayLayout(probeDir) } catch (error) { console.log('layout guard =', error.message.slice(0, 56), '…') }
 
-// point at a prepared working directory so the test is hermetic
-apply(ctx, { enabled: true, dir: 'F:/workspace/.gwtest', host: '127.0.0.1', port: 4103 })
-if (!tool.definition) throw new Error('tool was not registered')
-console.log('tool =', tool.definition.name, '| timeout =', tool.definition.timeoutMs)
+// renderStatus must survive an empty/unstarted status object
+const stopped = { running: false, base: 'http://127.0.0.1:4000/v1', dir: probeDir, channels: [], healthy: 0, verified: 0, modelCount: 0, models: [] }
+console.log('\n--- 未运行 ---\n' + renderStatus(stopped))
 
-await new Promise(resolve => setTimeout(resolve, 1200))
-
-for (const action of ['status', 'models', 'reload']) {
-  const text = await tool.definition.execute({ action })
-  if (typeof text !== 'string') throw new Error(`${action} did not return a string`)
-  console.log(`\n--- ${action} ---\n${text.split('\n').slice(0, 5).join('\n')}`)
+const running = {
+  running: true, base: 'http://127.0.0.1:4000/v1', dir: probeDir, channels: [
+    { id: 'ch1', site: 'site-a', models: 12, healthy: true, ok: 3, fail: 0, cooldown: 0, latencyMs: 820, lastError: '' },
+    { id: 'ch2', site: 'site-b', models: 5, healthy: false, ok: 1, fail: 2, cooldown: 90, latencyMs: 4100, lastError: '401 Invalid token' },
+  ], healthy: 1, verified: 2, modelCount: 17, models: ['a', 'b'],
 }
-
-console.log('\nlogs:', logs)
-console.log('disposers:', disposers.map(i => i.label))
-for (const { disposer } of disposers) disposer()
-await new Promise(resolve => setTimeout(resolve, 300))
+console.log('\n--- 运行中 ---\n' + renderStatus(running))
+console.log('\n--- 带模型 ---\n' + renderStatus(running, { withModels: true }).split('\n').slice(0, 6).join('\n'))
 console.log('\nOK')

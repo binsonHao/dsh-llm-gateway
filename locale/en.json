@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "Local LLM relay",
-    "description": "Supervises a local aggregation gateway that merges many OpenAI-compatible upstreams behind one endpoint, with automatic failover and channel cooldown. Enabling the plugin starts it, disabling stops it; the llm_gateway tool reports channel health, restarts it, and reloads channels."
+    "description": "Supervises a local aggregation gateway that merges many OpenAI-compatible upstreams behind one endpoint, with automatic failover and channel cooldown. Enabling the plugin starts it, disabling stops it; the llm_gateway tool reports channel health, restarts it, and reloads channels.",
+    "detail": "docs/DETAIL.md"
   }
 }

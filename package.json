@@ -1,6 +1,6 @@
 {
   "name": "dsh-llm-gateway",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local LLM relay for DeepSeek Harness: merges many OpenAI-compatible upstreams behind one endpoint with automatic failover. Runs in-process, zero runtime dependencies.",
   "license": "MIT",
   "author": "binsonHao",
@@ -30,10 +30,14 @@
     "./bin": "./bin/gateway.mjs",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./remote": "./remote.js",
+    "./client": "./client.js"
   },
   "files": [
     "index.js",
+    "remote.js",
+    "client.js",
     "lib/gateway.mjs",
     "bin/gateway.mjs",
     "cordis.patch.yml",
@@ -53,10 +57,18 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@deepseek-ai/schemastery": "*"
+    "@deepseek-ai/schemastery": "*",
+    "@deepseek-ai/dsh-typert-protocol": "*",
+    "@deepseek-ai/cordis": "*"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/schemastery": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-typert-protocol": {
+      "optional": true
+    },
+    "@deepseek-ai/cordis": {
       "optional": true
     }
   },
@@ -64,6 +76,14 @@
     "manifestVersion": 1,
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings-general"
+      ]
     }
   },
   "scripts": {
