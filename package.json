@@ -1,6 +1,6 @@
 {
   "name": "dsh-llm-gateway",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Local LLM relay for DeepSeek Harness: merges many OpenAI-compatible upstreams behind one endpoint with automatic failover. Runs in-process, zero runtime dependencies.",
   "license": "MIT",
   "author": "binsonHao",

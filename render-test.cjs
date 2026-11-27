@@ -49,26 +49,30 @@ const status = {
   base: 'http://127.0.0.1:4000/v1',
   dir: 'C:/Users/Administrator/.dsh/llm-gateway',
   channels: [
-    { id: 'ch4-api-chengmo-cc-cd', site: '城陌公益站', models: 4, healthy: true, ok: 9, fail: 0, cooldown: 0, lastError: '', latencyMs: 5000,
-      modelList: ['DeepSeek-V4.1-Flash', 'DeepSeek-V4-Pro', 'GLM-5.3-Flash', 'kimi-k3'] },
-    { id: 'ch1-elysiver-h-e-top', site: 'elysiver', models: 3, healthy: false, ok: 0, fail: 4, cooldown: 30,
-      modelList: ['DeepSeek-V4.1-Flash', 'grok-4.7', 'grok-4.6'],
+    { id: 'ch4-api-chengmo-cc-cd', site: '城陌公益站', models: 3, healthy: true, ok: 9, fail: 0, cooldown: 0, lastError: '', latencyMs: 5000,
+      modelList: ['DeepSeek-V4.1-Flash', 'GLM-5.3-Flash', 'grok-4.7'] },
+    { id: 'ch19-wududu-edu-kg', site: 'wududu', models: 3, healthy: true, ok: 9, fail: 0, cooldown: 0, lastError: '', latencyMs: 1600,
+      modelList: ['DeepSeek-V4.1-Flash', 'grok-4.6', 'grok-4.7'] },
+    { id: 'ch1-elysiver-h-e-top', site: 'elysiver', models: 1, healthy: false, ok: 0, fail: 4, cooldown: 30,
+      modelList: ['grok-4.5'],
       lastError: '401 {"error":{"code":"","message":"Invalid token (request id: 202611270353090443437168268d9d6ZscNCcRC)","type":"new_api_error"}}', latencyMs: 8547 },
   ],
-  healthy: 1,
-  verified: 1,
-  modelCount: 8,
+  healthy: 2,
+  verified: 2,
+  modelCount: 5,
   totalModelCount: 231,
-  models: ['DeepSeek-V4.1-Flash', 'DeepSeek-V4-Pro', 'DeepSeek-R1-0528-Qwen3-8B', 'grok-4.5', 'grok-4.6', 'grok-4.7', 'GLM-5.3-Flash', 'kimi-k3'],
+  models: ['DeepSeek-V4.1-Flash', 'GLM-5.3-Flash', 'grok-4.5', 'grok-4.6', 'grok-4.7'],
   allModels: ['gpt-4o', 'claude-opus-4-5', 'temperatures-outside-allowlist'],
   probe: {
     at: Date.now(), ok: 1, total: 2, image: 1,
+    // 旧快照：只记了 3 个 hcnsec 通道，不含后加的 ch4/ch19——模拟线上真实情况
     rows: [
-      { channel: 'ch4-api-chengmo-cc-cd', site: '城陌公益站', model: 'DeepSeek-V4.1-Flash', ok: true, ms: 4725, image: true },
-      { channel: 'ch1-elysiver-h-e-top', site: 'elysiver', model: 'DeepSeek-V4.1-Flash', ok: false, ms: 0, status: 401 },
+      { channel: 'ch13-api-hcnsec-cn', site: 'hcnsec', model: 'DeepSeek-V4.1-Flash', ok: false, ms: 0, status: 0 },
+      { channel: 'ch14-api-hcnsec-cn', site: 'hcnsec', model: 'DeepSeek-V4.1-Flash', ok: false, ms: 0, status: 0 },
+      { channel: 'ch15-api-hcnsec-cn', site: 'hcnsec', model: 'DeepSeek-V4.1-Flash', ok: false, ms: 0, status: 0 },
     ],
   },
-  pins: { 'DeepSeek-V4.1-Flash': ['ch4-api-chengmo-cc-cd'] },
+  pins: { 'DeepSeek-V4.1-Flash': ['ch19-wududu-edu-kg'] },
 };
 
 const dict = {
@@ -127,11 +131,15 @@ const families = new Set();
 })(tree);
 
 const checks = [
-  ['分组渲染', groupCount === 4, `期望 4 组，实际 ${groupCount}（${[...families].join(', ')}）`],
-  ['通道芯片', chipCount === 7, `白名单 8 个模型里 7 个能落到通道（R1-0528 不在任何通道声明里），实际 ${chipCount}`],
+  ['分组渲染', groupCount === 3, `期望 3 组（DeepSeek/GLM/Grok），实际 ${groupCount}（${[...families].join(', ')}）`],
+  ['通道芯片', chipCount === 10, `期望 10 个（V4.1-Flash 5、GLM 1、grok-4.7 2、grok-4.6 1、grok-4.5 1），实际 ${chipCount}`],
+  ['ch19 排首位', /ch19-wududu-edu-kg","[^}]*"[^"]*"，?ch4/.test(flat) || flat.indexOf('ch19-wududu-edu-kg') < flat.indexOf('ch13-api-hcnsec-cn'), '固定的 ch19 没排在候选前面'],
   ['错误压缩', flat.includes('Invalid token (request id: 202611270353090…'), '最近错误未压缩成单行'],
   ['白名单外不泄漏', !flat.includes('temperatures-outside-allowlist'), 'allModels 混进了默认视图'],
   ['首选标记', flat.includes('"首选"'), '没有渲染首选标记'],
+  ['ch19 出现', flat.includes('ch19-wududu-edu-kg'), '固定优先的 ch19 没渲染出来（旧快照覆盖了通道声明）'],
+  ['R1 已移除', !flat.includes('DeepSeek-R1-0528-Qwen3-8B'), 'DeepSeek-R1 仍在列表里'],
+  ['V4-Pro 已移除', !flat.includes('DeepSeek-V4-Pro'), 'DeepSeek-V4-Pro 仍在列表里'],
 ];
 
 let failed = 0;

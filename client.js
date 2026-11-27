@@ -270,19 +270,22 @@ window.__ModuleLoader__.load({
           if (!map.has(row.model)) map.set(row.model, []);
           map.get(row.model).push(row);
         }
-        const declared = new globalThis.Map();
+        // 测速快照可能过期：它只记录当时跑到的通道，之后新加的通道不会在里面。
+        // 所以通道声明的候选要并进来，不能因为「测速里有这个模型」就整体跳过。
         for (const row of rows) {
           for (const model of row.modelList ?? []) {
-            if (!declared.has(model)) declared.set(model, []);
-            declared.get(model).push(row);
+            if (!map.has(model)) map.set(model, []);
+            const list = map.get(model);
+            if (list.some(entry => entry.channel === row.id)) continue;
+            list.push({
+              channel: row.id,
+              site: row.site,
+              ok: row.healthy,
+              ms: 0,                    // 没实测过，别拿通道历史延迟冒充
+              image: undefined,
+              probed: false,
+            });
           }
-        }
-        // 测速里没有的模型，用它自己通道列表兜底——否则没测速就完全没得选
-        for (const [model, list] of declared) {
-          if (map.has(model)) continue;
-          map.set(model, list.map(row => ({
-            channel: row.id, site: row.site, ok: row.healthy, ms: row.latencyMs || 0, image: undefined,
-          })));
         }
         for (const list of map.values()) {
           list.sort((a, b) => (a.ok === b.ok ? (a.ms || 1e9) - (b.ms || 1e9) : a.ok ? -1 : 1));
@@ -297,9 +300,11 @@ window.__ModuleLoader__.load({
           .map(row => ({
             id: row.channel,
             pinned: pinnedFor.has(row.channel),
-            dead: !row.ok,
-            ms: row.ok ? row.ms : 0,
-            title: `${row.channel} · ${row.site}${row.ok ? ` · ${row.ms}ms` : ` · ${row.status || '失败'}`}`,
+            dead: row.ok === false,
+            // 只认实测延迟；没测过的显示「未测」，不拿通道历史值充数
+            ms: row.ok === false ? 0 : (row.probed === false ? 0 : (row.ms || 0)),
+            probed: row.probed !== false && Boolean(row.ms),
+            title: `${row.channel} · ${row.site}${row.probed === false ? ' · 未测速' : row.ok ? ` · ${row.ms}ms` : ` · ${row.status || '失败'}`}`,
           }))
           .sort((a, b) => (a.pinned === b.pinned ? (a.dead === b.dead ? a.ms - b.ms : a.dead ? 1 : -1) : a.pinned ? -1 : 1));
       }
@@ -438,7 +443,8 @@ window.__ModuleLoader__.load({
                   className: `lgw-chip${candidate.pinned ? ' lgw-chip-on' : ''}${candidate.dead ? ' lgw-chip-dead' : ''}`,
                   title: candidate.title,
                   onClick: () => choosePin(model, candidate.pinned ? null : candidate.id),
-                }, h('span', { className: latencyClass(candidate.ms) }, candidate.ms ? `${candidate.ms}ms` : '—'), ' ', candidate.id))));
+                }, h('span', { className: candidate.probed ? latencyClass(candidate.ms) : 'lgw-err' },
+                  candidate.probed ? `${candidate.ms}ms` : t('unprobed')), ' ', candidate.id))));
             })))))
           : null);
     }
