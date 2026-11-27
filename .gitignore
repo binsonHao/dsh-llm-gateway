@@ -7,3 +7,5 @@ gateway.json
 health.json
 .selftest-dir/
 *.tgz
+pins.json
+probe.json
