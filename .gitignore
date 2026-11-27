@@ -1,6 +1,8 @@
 node_modules/
-.selftest-dir/
 *.log
-gateway/gateway.json
+logs/
+# 运行时生成，含你的上游令牌与入口 key，永远不要提交
 channels.json
+gateway.json
 health.json
+.selftest-dir/
