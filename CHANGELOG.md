@@ -25,3 +25,9 @@
 - **改走同源 HTTP 路由**：宿主用 `ctx.webServer.register` 暴露 `/llm-gateway/api/*`，设置页直接 `fetch`。
   原先的 Typert Remote 方案在 `link:` 安装下会被 "Receiver must be an instance of class LlmGatewayService" 拒绝。
 - 移除 `remote.js` 与 `@deepseek-ai/dsh-typert-protocol` 依赖；Host 半区回到 `export function apply` 形态，`Config` 表单随之恢复。
+
+## 0.4.1
+
+- **修复空工具集导致的 400**：客户端在模型不支持工具时会发 `tools: []` + `tool_choice: "auto"`，
+  部分公益站对这个组合直接回 `upstream_400`。转发前把空工具集整组去掉，并清掉显式 `null` 字段。
+- 日志增加 `tools` / `msgs` 计数；请求最终失败时把请求体写入 `logs/last-failure-request.json`，便于定位上游拒收原因。
