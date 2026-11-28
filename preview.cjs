@@ -1,0 +1,188 @@
+/**
+ * 把设置页渲染成真实 HTML 并截图，用来肉眼验收排版。
+ * 依赖 render-test.cjs 里的假 React + 假数据。
+ */
+const fs = require('fs');
+const path = require('path');
+
+const src = fs.readFileSync(`${__dirname}/client.js`, 'utf8');
+const start = src.indexOf('factory(require) {') + 'factory(require) {'.length;
+const end = src.search(/return \{[\s]*inject:/);
+if (start < 10 || end < 0) throw new Error('切片失败');
+let body = src.slice(start, end);
+ if (process.argv.includes('--open')) {
+   body = body.replace("const [openChannel, setOpenChannel] = React.useState(null);", "const [openChannel, setOpenChannel] = React.useState('ch14-api-hcnsec-cn');");
+ }
+
+const VOID = new Set(['input', 'br', 'hr', 'img', 'meta', 'link']);
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function toHtml(node) {
+  if (node === null || node === undefined || node === false) return '';
+  if (typeof node === 'string' || typeof node === 'number') return esc(node);
+  if (Array.isArray(node)) return node.map(toHtml).join('');
+  if (!node || typeof node !== 'object') return '';
+  if (node.type === 'style') return `<style>${node.kids.map(k => (typeof k === 'string' ? k : '')).join('')}</style>`;
+  const { type, props = {}, kids = [] } = node;
+  if (typeof type === 'function') return toHtml(type(props));
+  const attrs = Object.entries(props)
+    .filter(([k]) => k !== 'children' && k !== 'key' && k !== 'onClick' && k !== 'onChange' && k !== 'ref')
+    .map(([k, v]) => {
+      const name = k === 'className' ? 'class' : k;
+      if (v === true) return name;
+      if (v === false || v === undefined || v === null) return '';
+      return `${name}="${esc(v)}"`;
+    })
+    .filter(Boolean).join(' ');
+  const open = `<${type}${attrs ? ' ' + attrs : ''}>`;
+  if (VOID.has(type)) return open;
+  return `${open}${kids.map(toHtml).join('')}</${type}>`;
+}
+
+const h = (type, props, ...kids) => ({
+  type, props: props || {},
+  kids: kids.flat(Infinity).filter(k => k !== null && k !== undefined && k !== false),
+});
+
+function makeReact() {
+  let slots = [];
+  let cursor = 0;
+  let effects = [];
+  const R = {
+    createElement: h,
+    useState(initial) {
+      const i = cursor++;
+      if (!(i in slots)) slots[i] = typeof initial === 'function' ? initial() : initial;
+      const set = next => { slots[i] = typeof next === 'function' ? next(slots[i]) : next; };
+      return [slots[i], set];
+    },
+    useCallback(fn) { cursor++; return fn; },
+    useMemo(fn) { cursor++; return fn(); },
+    useEffect(fn) { cursor++; effects.push(fn); },
+    useId: () => 'relay',
+    memo: f => f,
+    __reset() { slots = []; cursor = 0; effects = []; },
+    __rewind() { cursor = 0; effects = []; },
+    __runEffects() { const l = effects; effects = []; cursor = 0; l.forEach(f => f()); },
+  };
+  return R;
+}
+
+const React = makeReact();
+
+const status = {
+  running: true,
+  base: 'http://127.0.0.1:4000/v1',
+  dir: 'C:\\Users\\Administrator\\.dsh\\llm-gateway',
+  channels: [
+    { id: 'ch19-wududu-edu-kg', site: 'wududu', models: 3, healthy: true, ok: 9, fail: 0, cooldown: 0, lastError: '', latencyMs: 1600,
+      modelList: ['DeepSeek-V4.1-Flash', 'grok-4.6', 'grok-4.7'] },
+    { id: 'ch4-api-chengmo-cc-cd', site: '城陌公益站', models: 3, healthy: true, ok: 9, fail: 1, cooldown: 0, latencyMs: 5000,
+      lastError: 'net gateway timeout', modelList: ['DeepSeek-V4.1-Flash', 'GLM-5.3-Flash', 'grok-4.7'] },
+    { id: 'ch14-api-hcnsec-cn', site: 'hcnsec', models: 2, healthy: true, ok: 0, fail: 3, cooldown: 24,
+      lastError: 'net gateway timeout', modelList: ['DeepSeek-V4.1-Flash'] },
+    { id: 'ch1-elysiver-h-e-top', site: 'elysiver', models: 1, healthy: false, ok: 0, fail: 4, cooldown: 30,
+      lastError: '401 {"error":{"code":"","message":"Invalid token (request id: 202611270353090443437168268d9d6ZscNCcRC)","type":"new_api_error"}}',
+      modelList: ['grok-4.5'] },
+  ],
+  healthy: 3, verified: 2, modelCount: 5, totalModelCount: 231,
+  models: ['DeepSeek-V4.1-Flash', 'GLM-5.3-Flash', 'grok-4.5', 'grok-4.6', 'grok-4.7'],
+  allModels: ['gpt-4o', 'claude-opus-4-5'],
+  probe: {
+    at: Date.now(), ok: 2, total: 4, image: 1,
+    rows: [
+      { channel: 'ch19-wududu-edu-kg', site: 'wududu', model: 'DeepSeek-V4.1-Flash', ok: true, ms: 1306, image: true },
+      { channel: 'ch4-api-chengmo-cc-cd', site: '城陌公益站', model: 'DeepSeek-V4.1-Flash', ok: true, ms: 4725, image: false },
+      { channel: 'ch14-api-hcnsec-cn', site: 'hcnsec', model: 'DeepSeek-V4.1-Flash', ok: false, ms: 0, status: 0 },
+    ],
+  },
+  pins: { 'DeepSeek-V4.1-Flash': ['ch19-wududu-edu-kg'] },
+};
+
+const dict = {
+  title: '本地中转站',
+  description: '把多个 OpenAI 兼容上游合并成一个本地出口，同名模型自动在通道间故障转移。开关与通道健康状况都在这里。',
+  running: '运行中', base: '出口地址', dir: '工作目录', channels: '通道', healthy: '健康', verified: '实测通过',
+  models: '模型', restart: '重启', stop: '停止', reload: '热加载', probe: '测速', refresh: '刷新',
+  channelId: '通道', site: '站点', state: '状态', colLatency: '实测延迟', colImage: '图片', fails: '失败', latency: '延迟',
+  lastError: '最近错误', okState: '正常', coolState: '冷却中', modelList: '热门模型与通道选择', showAll: '显示全部模型',
+  pickHint: '点通道名把它设为该模型的首选；再点一次取消。首选通道不可用时会自动切下一个。',
+  pinnedTag: '首选', clearPin: '恢复自动', unprobed: '未测', imageYes: '支持', imageNo: '不支持', imageSkipped: '—',
+  noProbe: '没测过', probeNever: '还没测过',
+  unusable: '不可用', probeFail: '✗ 失败',
+};
+const t = (k, vars) => {
+  if (k === 'probeResult') return `最近测速：${vars?.ok}/${vars?.total} 通道可用，${vars?.image} 个支持图片`;
+  return dict[k] ?? k;
+};
+
+globalThis.fetch = async () => ({ ok: true, json: async () => status });
+
+const mod = new Function('require', 'window', 'globalThis', `${body}\nreturn { LlmGatewayPage };`)(
+  () => React, { __ModuleLoader__: {} }, globalThis,
+);
+
+(async () => {
+  React.__reset();
+  React.__renderPass = (m, tt) => m.LlmGatewayPage({ t: tt });
+  React.__renderPass(mod, t);
+  React.__runEffects();
+  await new Promise(r => setImmediate(r));
+  await new Promise(r => setTimeout(r, 10));
+  React.__rewind();
+  const tree = React.__renderPass(mod, t);
+  const inner = toHtml(tree);
+
+  const html = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<style>
+  :root {
+    --dsw-alias-bg-layer-1: #fdfcf7;
+    --dsw-alias-bg-subtle: rgba(120,110,80,.06);
+    --dsw-alias-bg-hover: rgba(120,110,80,.06);
+    --dsw-alias-border-l1: rgba(120,110,80,.22);
+    --dsw-alias-border-l2: rgba(120,110,80,.38);
+    --dsw-alias-text-primary: #2c2a24;
+    --dsw-alias-text-secondary: #5c584d;
+    --dsw-alias-text-tertiary: #8a8577;
+    --dsw-alias-accent: #5f8c3f;
+    --dsw-alias-accent-soft: rgba(95,140,63,.14);
+    --dsw-alias-label-on-color: #fff;
+    --dsw-alias-danger: #b0483c;
+    --dsw-static-green-500: #4c8d3f;
+    --dsw-static-green-500-a12: rgba(76,141,63,.12);
+    --dsw-static-amber-500: #b8860b;
+    --dsw-static-red-500: #b0483c;
+    --dsw-static-red-400-a12: rgba(176,72,60,.12);
+  }
+  body.dark { 
+  --dsw-alias-bg-layer-1: #26251f;
+  --dsw-alias-bg-subtle: rgba(255,250,230,.06);
+  --dsw-alias-bg-hover: rgba(255,250,230,.07);
+  --dsw-alias-border-l1: rgba(255,250,230,.18);
+  --dsw-alias-border-l2: rgba(255,250,230,.30);
+  --dsw-alias-text-primary: #ece8dc;
+  --dsw-alias-text-secondary: #b3ae9e;
+  --dsw-alias-text-tertiary: #837e70;
+  --dsw-alias-accent: #8fb96a;
+  --dsw-alias-accent-soft: rgba(143,185,106,.20);
+  --dsw-alias-label-on-color: #1a1a16;
+  --dsw-alias-danger: #e08076;
+  --dsw-static-green-500: #7fae5c;
+  --dsw-static-green-500-a12: rgba(127,174,92,.18);
+  --dsw-static-amber-500: #d4a53a;
+  --dsw-static-red-500: #e08076;
+  --dsw-static-red-400-a12: rgba(224,128,118,.18);
+ background:#1c1b17; }
+  body.dark .frame { background:#26251f; }
+  body { margin: 0; background: #f4f2ea; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .frame { max-width: 720px; margin: 0 auto; padding: 24px 20px 60px; background: #fdfcf7; min-height: 100vh; }
+  .narrow .frame { max-width: 420px; }
+</style></head>
+<body class="${[process.argv.includes('--narrow') ? 'narrow' : '', process.argv.includes('--dark') ? 'dark' : ''].join(' ').trim()}">
+  <div class="frame">${inner}</div>
+</body></html>`;
+
+  fs.writeFileSync(path.join(__dirname, [process.argv.includes('--open') ? 'preview-open' : 'preview', process.argv.includes('--dark') ? '-dark' : ''].join('') + '.html'), html, 'utf8');
+  console.log('已生成 preview.html，', html.length, 'bytes');
+})();

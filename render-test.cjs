@@ -121,11 +121,13 @@ if (process.env.DEBUG) {
 
 let groupCount = 0;
 let chipCount = 0;
+let rowCount = 0;
 const families = new Set();
 (function walk(node) {
   if (!node || typeof node !== 'object') return;
   if (node.props?.className === 'lgw-group') groupCount += 1;
   if (node.type === 'button' && typeof node.props?.className === 'string' && node.props.className.startsWith('lgw-chip')) chipCount += 1;
+  if (node.type === 'button' && node.props?.className === 'lgw-row-main') rowCount += 1;
   if (node.props?.className === 'lgw-group-name' && node.kids[0]) families.add(node.kids[0]);
   (node.kids || []).forEach(walk);
 })(tree);
@@ -134,7 +136,8 @@ const checks = [
   ['分组渲染', groupCount === 3, `期望 3 组（DeepSeek/GLM/Grok），实际 ${groupCount}（${[...families].join(', ')}）`],
   ['通道芯片', chipCount === 10, `期望 10 个（V4.1-Flash 5、GLM 1、grok-4.7 2、grok-4.6 1、grok-4.5 1），实际 ${chipCount}`],
   ['ch19 排首位', /ch19-wududu-edu-kg","[^}]*"[^"]*"，?ch4/.test(flat) || flat.indexOf('ch19-wududu-edu-kg') < flat.indexOf('ch13-api-hcnsec-cn'), '固定的 ch19 没排在候选前面'],
-  ['错误压缩', flat.includes('Invalid token (request id: 202611270353090…'), '最近错误未压缩成单行'],
+  ['错误压缩', true, '错误默认折叠在详情里，展开后单独断言'],
+  ['通道行渲染', rowCount === 3, `期望 3 个通道行，实际 ${rowCount}`],
   ['白名单外不泄漏', !flat.includes('temperatures-outside-allowlist'), 'allModels 混进了默认视图'],
   ['首选标记', flat.includes('"首选"'), '没有渲染首选标记'],
   ['ch19 出现', flat.includes('ch19-wududu-edu-kg'), '固定优先的 ch19 没渲染出来（旧快照覆盖了通道声明）'],
@@ -148,5 +151,53 @@ for (const [name, ok, detail] of checks) {
   if (!ok) failed += 1;
 }
 console.log(`\n分组：${[...families].join(' / ')}`);
-process.exit(failed === 0 ? 0 : 1);
+
+// 展开态：默认折叠时拿不到错误文本，单独渲染一次展开的通道
+(async () => {
+  const status2 = { ...status, __open: true };
+  const orig = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, json: async () => status2 });
+  React.__reset();
+  React.__renderPass(mod, t);
+  React.__runEffects();
+  await new Promise(r => setImmediate(r));
+  React.__rewind();
+  const collapsed = React.__renderPass(mod, t);
+
+  // 找到那条有 lastError 的通道行，模拟点击展开
+  let targetId = null;
+  (function find(n) {
+    if (!n || typeof n !== 'object') return;
+    if (typeof n.props?.className === 'string' && n.props.className.startsWith('lgw-row')
+      && !n.props.className.includes('main') && !n.props.className.includes('detail')) {
+      targetId = n.props.key ?? targetId;
+    }
+    (n.kids || []).forEach(find);
+  })(collapsed);
+
+  const openTree = await (async () => {
+    // 直接以展开态重渲染：把 openChannel 初值设成 ch1（有 lastError 的那个）
+    const body2 = body.replace(
+      'const [openChannel, setOpenChannel] = React.useState(null);',
+      "const [openChannel, setOpenChannel] = React.useState('ch1-elysiver-h-e-top');",
+    );
+    const m2 = new Function('require', 'window', 'globalThis', `${body2}\nreturn { LlmGatewayPage };`)(
+      () => React, { __ModuleLoader__: {} }, globalThis,
+    );
+    React.__reset();
+    React.__renderPass(m2, t);   // 第一遍登记 effect
+    React.__runEffects();        // load() 执行
+    await new Promise(r => setImmediate(r));
+    await new Promise(r => setTimeout(r, 20));
+    React.__rewind();            // 保留 state
+    return React.__renderPass(m2, t);
+  })();
+
+  const flatOpen = JSON.stringify(openTree);
+  const detailOk = flatOpen.includes('Invalid token (request id: 202611270353090…');
+  console.log(`${detailOk ? '✓' : '✗'} 展开后错误压缩${detailOk ? '' : ' — 详情里没有压缩后的错误文本'}`);
+  globalThis.fetch = orig;
+  process.exit(failed === 0 && detailOk ? 0 : 1);
+})();
+
 });
