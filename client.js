@@ -93,6 +93,7 @@ window.__ModuleLoader__.load({
       probing: '测速中…',
       probeResult: '最近测速：{time}，{ok}/{total} 通道可用，{image} 个支持图片',
       probeNever: '还没测过。点「测速」并发跑一遍全部通道，会消耗少量上游额度。',
+      probeCompact: '测速 {ok}/{total} 可用 · {image} 支持图片',
       probeDone: '测速完成：{ok}/{total} 可用，「{fastest}」最快 {ms}',
       probeFailed: '测速失败：{message}',
       colLatency: '实测延迟',
@@ -143,6 +144,19 @@ window.__ModuleLoader__.load({
       pinnedTag: 'preferred',
       noProbe: 'not probed',
       clearPin: 'Back to automatic',
+      probe: 'Probe',
+      probing: 'Probing…',
+      probeResult: 'Last probe: {time}, {ok}/{total} channels usable, {image} support images',
+      probeCompact: 'Probe {ok}/{total} usable · {image} support images',
+      probeNever: 'Not probed yet. Probing runs every channel in parallel and spends a little upstream quota.',
+      probeDone: 'Probe done: {ok}/{total} usable, "{fastest}" fastest at {ms}',
+      probeFailed: 'Probe failed: {message}',
+      colLatency: 'Measured',
+      colImage: 'Images',
+      colModel: 'Sample model',
+      imageYes: 'yes',
+      imageNo: 'no',
+      imageSkipped: '—',
       started: 'Started',
       stoppedNotice: 'Stopped',
       restarted: 'Restarted',
@@ -358,6 +372,12 @@ window.__ModuleLoader__.load({
       }
       .lgw-notice-error { background: var(--dsw-static-red-400-a12, rgba(176,72,60,.12)); color: ${STYLE_TOKENS.red}; }
       .lgw-empty { font-size: 13px; color: ${STYLE_TOKENS.textSecondary}; margin: 0; line-height: 1.6; }
+      /* 未运行时的说明单独成段，别贴着工作目录看起来像它的子字段 */
+      .lgw-stopped-hint {
+        margin: 16px 0 0; padding-top: 12px;
+        border-top: 1px solid ${STYLE_TOKENS.border};
+        font-size: 13px; color: ${STYLE_TOKENS.textSecondary}; line-height: 1.6;
+      }
 
       /* 窄容器：隐藏次要列，优先保住通道名和延迟 */
       /* 窄容器：.lgw-row-site 在 .lgw-row-id 内部，不是网格列，所以列数不能减——
@@ -593,7 +613,7 @@ window.__ModuleLoader__.load({
               h('span', { className: 'lgw-meta-label' }, t('dir')),
               h('span', { className: 'lgw-meta-value mono', title: data.dir }, data.dir))),
           data.detail ? h('p', { className: 'lgw-desc', style: { marginTop: 12, color: 'var(--dsw-alias-danger, #b0483c)' } }, data.detail) : null,
-          data.running ? null : h('p', { className: 'lgw-empty', style: { marginTop: 12 } }, t('stoppedHint'))) : null,
+          data.running ? null : h('p', { className: 'lgw-stopped-hint' }, t('stoppedHint'))) : null,
 
         data?.running && rows.length === 0
           ? h('div', { className: 'lgw-card' }, h('p', { className: 'lgw-empty' }, t('empty')))
@@ -604,10 +624,14 @@ window.__ModuleLoader__.load({
           h('div', { className: 'lgw-card-head' },
             h('h3', { className: 'lgw-card-title' }, t('channels')),
             probeRows.length > 0
-              ? h('span', { className: 'lgw-card-sub' }, t('probeResult', {
-                time: new Date(data.probe.at).toLocaleTimeString(),
-                ok: data.probe.ok, total: data.probe.total, image: data.probe.image,
-              }))
+              ? h('span', {
+                className: 'lgw-card-sub',
+                // 完整信息（含测速时间）放悬停，视线只留「能不能用」
+                title: t('probeResult', {
+                  time: new Date(data.probe.at).toLocaleTimeString(),
+                  ok: data.probe.ok, total: data.probe.total, image: data.probe.image,
+                }),
+              }, t('probeCompact', { ok: data.probe.ok, total: data.probe.total, image: data.probe.image }))
               : h('span', { className: 'lgw-card-sub' }, t('probeNever'))),
           h('div', { className: 'lgw-rows' }, rows.map(row => {
             const probe = probeByChannel.get(row.id);

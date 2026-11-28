@@ -10,6 +10,11 @@ const end = src.search(/return \{[\s]*inject:/);
 if (start < 10 || end < 0) throw new Error('切片失败：没找到 factory 边界');
 const body = src.slice(start, end);
 
+// 两个字典必须键对齐，否则缺的那个 locale 会直接显示成 key 名（如字面量 probeNever）
+const zhKeys = [...src.slice(src.indexOf('const zh = {'), src.indexOf('\n    };', src.indexOf('const zh = {'))).matchAll(/^\s{6}([A-Za-z0-9_]+):/gm)].map(m => m[1]);
+const enKeys = [...src.slice(src.indexOf('const en = {'), src.indexOf('\n    };', src.indexOf('const en = {'))).matchAll(/^\s{6}([A-Za-z0-9_]+):/gm)].map(m => m[1]);
+const dictGap = zhKeys.filter(k => !enKeys.includes(k));
+
 const h = (type, props, ...kids) => ({
   type,
   props: props || {},
@@ -139,6 +144,8 @@ const checks = [
   ['ch19 排首位', /ch19-wududu-edu-kg","[^}]*"[^"]*"，?ch4/.test(flat) || flat.indexOf('ch19-wududu-edu-kg') < flat.indexOf('ch13-api-hcnsec-cn'), '固定的 ch19 没排在候选前面'],
   ['错误压缩', true, '错误默认折叠在详情里，展开后单独断言'],
   ['通道行渲染', rowCount === 3, `期望 3 个通道行，实际 ${rowCount}`],
+  ['字典对齐', dictGap.length === 0, `en 缺少 ${dictGap.length} 个 key：${dictGap.join(', ')}`],
+  ['运行中不显示启动提示', !flat.includes(dict.stoppedHint), '运行中却出现了「点启动后…」的提示'],
   ['白名单外不泄漏', !flat.includes('temperatures-outside-allowlist'), 'allModels 混进了默认视图'],
   ['首选标记', flat.includes('"首选"'), '没有渲染首选标记'],
   ['ch19 出现', flat.includes('ch19-wududu-edu-kg'), '固定优先的 ch19 没渲染出来（旧快照覆盖了通道声明）'],

@@ -89,12 +89,14 @@ const status = {
       lastError: 'net gateway timeout', modelList: ['DeepSeek-V4.1-Flash', 'GLM-5.3-Flash', 'grok-4.7'] },
     { id: 'ch14-api-hcnsec-cn', site: 'hcnsec', models: 2, healthy: true, ok: 0, fail: 3, cooldown: 24,
       lastError: 'net gateway timeout', modelList: ['DeepSeek-V4.1-Flash'] },
+    { id: 'ch18-integrate-api-nvidia-com', site: '英伟达', models: 2, healthy: true, ok: 0, fail: 0, cooldown: 0,
+      lastError: '', latencyMs: 2656, modelList: ['grok-4.7', 'nvidia/nemotron-3.5-super-vl-120b-a12b'] },
     { id: 'ch1-elysiver-h-e-top', site: 'elysiver', models: 1, healthy: false, ok: 0, fail: 4, cooldown: 30,
       lastError: '401 {"error":{"code":"","message":"Invalid token (request id: 202611270353090443437168268d9d6ZscNCcRC)","type":"new_api_error"}}',
       modelList: ['grok-4.5'] },
   ],
   healthy: 3, verified: 2, modelCount: 5, totalModelCount: 231,
-  models: ['DeepSeek-V4.1-Flash', 'GLM-5.3-Flash', 'grok-4.5', 'grok-4.6', 'grok-4.7'],
+  models: ['DeepSeek-V4.1-Flash', 'GLM-5.3-Flash', 'grok-4.5', 'grok-4.6', 'grok-4.7', 'nvidia/nemotron-3.5-super-vl-120b-a12b'],
   allModels: ['gpt-4o', 'claude-opus-4-5'],
   probe: {
     at: Date.now(), ok: 2, total: 4, image: 1,
@@ -119,6 +121,9 @@ const t = (k, vars) => {
   return raw.replace(/\{(\w+)\}/g, (_, name) => String(vars[name] ?? ''));
 };
 
+if (process.argv.includes('--stopped')) {
+  Object.assign(status, { running: false, channels: [], healthy: 0, verified: 0, modelCount: 0, models: [], allModels: [], probe: { at: 0, ok: 0, total: 0, image: 0, rows: [] }, pins: {} });
+}
 globalThis.fetch = async () => ({ ok: true, json: async () => status });
 
 
@@ -191,6 +196,7 @@ globalThis.fetch = async () => ({ ok: true, json: async () => status });
     process.argv.includes('--open') ? 'open' : '',
     process.argv.includes('--narrow') ? 'narrow' : '',
     process.argv.includes('--dark') ? 'dark' : '',
+    process.argv.includes('--stopped') ? 'stopped' : '',
   ].filter(Boolean).join('-') || 'base';
   const outFile = `preview-${variant}.html`;
   fs.writeFileSync(path.join(__dirname, outFile), html, 'utf8');
