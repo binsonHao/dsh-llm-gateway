@@ -274,7 +274,11 @@ class Relay {
     this.probing = true
     try {
       ensureGatewayLayout(this.settings.dir)
-      return await probeAll({ dir: this.settings.dir })
+      return await probeAll({
+        dir: this.settings.dir,
+        // 白名单模型在各通道上都测一遍，否则候选通道一直没有延迟可比
+        models: this.gateway?.running ? this.gateway.models() : [],
+      })
     } finally {
       this.probing = false
     }

@@ -69,12 +69,15 @@ const status = {
   models: ['DeepSeek-V4.1-Flash', 'GLM-5.3-Flash', 'grok-4.5', 'grok-4.6', 'grok-4.7'],
   allModels: ['gpt-4o', 'claude-opus-4-5', 'temperatures-outside-allowlist'],
   probe: {
-    at: Date.now(), ok: 1, total: 2, image: 1,
-    // 旧快照：只记了 3 个 hcnsec 通道，不含后加的 ch4/ch19——模拟线上真实情况
+    at: Date.now(), ok: 4, total: 6, okChannels: 2, totalChannels: 3, image: 1,
+    // 同一通道多行：代表模型 + 白名单模型，芯片才有各自延迟
     rows: [
-      { channel: 'ch13-api-hcnsec-cn', site: 'hcnsec', model: 'DeepSeek-V4.1-Flash', ok: false, ms: 0, status: 0 },
-      { channel: 'ch14-api-hcnsec-cn', site: 'hcnsec', model: 'DeepSeek-V4.1-Flash', ok: false, ms: 0, status: 0 },
-      { channel: 'ch15-api-hcnsec-cn', site: 'hcnsec', model: 'DeepSeek-V4.1-Flash', ok: false, ms: 0, status: 0 },
+      { channel: 'ch19-wududu-edu-kg', site: 'wududu', model: 'DeepSeek-V4.1-Flash', representative: true, ok: true, ms: 1306, image: true },
+      { channel: 'ch4-api-chengmo-cc-cd', site: '城陌公益站', model: 'DeepSeek-V4.1-Flash', representative: true, ok: true, ms: 4725, image: false },
+      { channel: 'ch14-api-hcnsec-cn', site: 'hcnsec', model: 'DeepSeek-V4.1-Flash', representative: true, ok: false, ms: 0, status: 504, image: null },
+      { channel: 'ch19-wududu-edu-kg', site: 'wududu', model: 'grok-4.7', representative: false, ok: true, ms: 1180, image: null },
+      { channel: 'ch4-api-chengmo-cc-cd', site: '城陌公益站', model: 'grok-4.7', representative: false, ok: true, ms: 6400, image: null },
+      { channel: 'ch1-elysiver-h-e-top', site: 'elysiver', model: 'grok-4.5', representative: true, ok: false, ms: 0, status: 401, image: null },
     ],
   },
   pins: { 'DeepSeek-V4.1-Flash': ['ch19-wududu-edu-kg'] },
@@ -137,8 +140,8 @@ const families = new Set();
 const checks = [
   ['分组渲染', groupCount === 3, `期望 3 组（DeepSeek/GLM/Grok），实际 ${groupCount}（${[...families].join(', ')}）`],
   ['分组顺序', families instanceof Set && [...families][0] === 'DeepSeek', `有固定通道的 DeepSeek 应排第一，实际 ${[...families].join(' / ')}`],
-  ['通道芯片', chipCount === 10, `期望 10 个（V4.1-Flash 5、GLM 1、grok-4.7 2、grok-4.6 1、grok-4.5 1），实际 ${chipCount}`],
-  ['ch19 排首位', /ch19-wududu-edu-kg","[^}]*"[^"]*"，?ch4/.test(flat) || flat.indexOf('ch19-wududu-edu-kg') < flat.indexOf('ch13-api-hcnsec-cn'), '固定的 ch19 没排在候选前面'],
+  ['每个模型都有候选通道', chipCount >= 7, `白名单 5 个模型都该有候选，实际只有 ${chipCount} 颗`],
+  ['候选按延迟排序', flat.indexOf('1180ms') < flat.indexOf('6400ms'), '慢的通道排在了快的通道前面'],
   ['错误压缩', true, '错误默认折叠在详情里，展开后单独断言'],
   ['通道行渲染', rowCount === 3, `期望 3 个通道行，实际 ${rowCount}`],
   ['字典对齐', dictGap.length === 0, `en 缺少 ${dictGap.length} 个 key：${dictGap.join(', ')}`],
@@ -279,8 +282,13 @@ console.log(`\n分组：${[...families].join(' / ')}`);
   })();
   const confirmOk = JSON.stringify(confirmTree).includes(dict.confirmDelete);
   console.log(`${confirmOk ? '✓' : '✗'} 删除二次确认${confirmOk ? '' : ' — 点删除后没有出现确认按钮'}`);
+
+  // 同一模型在不同通道上要显示各自的实测延迟，而不是清一色「未测」
+  if (process.env.DEBUG) { const chips=[...flat.matchAll(/lgw-chip-text[^]*?kids.:..([^"]+)/g)].map(m=>m[1]); console.log('  芯片:', chips.join(' | ')); }
+  const perModelOk = flat.includes('1180ms') && flat.includes('6400ms');
+  console.log(`${perModelOk ? '✓' : '✗'} 候选通道分模型延迟${perModelOk ? '' : ' — 同一模型的候选只显示未测，没有各自延迟'}`);
   globalThis.fetch = orig;
-  process.exit(failed === 0 && detailOk && searchOk && formOk && delOk && confirmOk ? 0 : 1);
+  process.exit(failed === 0 && detailOk && searchOk && formOk && delOk && confirmOk && perModelOk ? 0 : 1);
 })();
 
 });

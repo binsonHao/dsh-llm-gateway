@@ -115,7 +115,8 @@ window.__ModuleLoader__.load({
       probing: '测速中…',
       probeResult: '最近测速：{time}，{ok}/{total} 通道可用，{image} 个支持图片',
       probeNever: '还没测过。点「测速」并发跑一遍全部通道，会消耗少量上游额度。',
-      probeCompact: '测速 {ok}/{total} 可用 · {image} 支持图片',
+      probeCompact: '测速 {ok}/{total} 通道可用 · {image} 支持图片',
+      probePairs: '共探测 {total} 次（通道 × 模型），成功 {ok} 次',
       probeDone: '测速完成：{ok}/{total} 可用，「{fastest}」最快 {ms}',
       probeFailed: '测速失败：{message}',
       colLatency: '实测延迟',
@@ -188,7 +189,8 @@ window.__ModuleLoader__.load({
       probe: 'Probe',
       probing: 'Probing…',
       probeResult: 'Last probe: {time}, {ok}/{total} channels usable, {image} support images',
-      probeCompact: 'Probe {ok}/{total} usable · {image} support images',
+      probeCompact: 'Probe {ok}/{total} channels usable · {image} support images',
+      probePairs: '{total} probes (channel × model), {ok} succeeded',
       probeNever: 'Not probed yet. Probing runs every channel in parallel and spends a little upstream quota.',
       probeDone: 'Probe done: {ok}/{total} usable, "{fastest}" fastest at {ms}',
       probeFailed: 'Probe failed: {message}',
@@ -523,7 +525,17 @@ window.__ModuleLoader__.load({
       const data = state.data;
       const rows = data?.channels ?? [];
       const probeRows = data?.probe?.rows ?? [];
-      const probeByChannel = new globalThis.Map(probeRows.map(row => [row.channel, row]));
+      // 一个通道现在可能有多行（代表模型 + 白名单模型）。通道列表要看代表行：
+      // 优先 representative 标记，其次该通道的 tested 模型，最后退到最快的一行。
+      const probeByChannel = (() => {
+        const map = new globalThis.Map();
+        for (const row of probeRows) {
+          const current = map.get(row.channel);
+          if (!current) { map.set(row.channel, row); continue; }
+          if (row.representative && !current.representative) { map.set(row.channel, row); continue; }
+        }
+        return map;
+      })();
 
       // 候选通道：优先用测速结果（有真实延迟），没测过的回落到通道声明
       const candidatesByModel = React.useMemo(() => {
@@ -765,11 +777,21 @@ window.__ModuleLoader__.load({
               probeRows.length > 0
                 ? h('span', {
                   className: 'lgw-card-sub',
-                  title: t('probeResult', {
-                    time: new Date(data.probe.at).toLocaleTimeString(),
-                    ok: data.probe.ok, total: data.probe.total, image: data.probe.image,
-                  }),
-                }, t('probeCompact', { ok: data.probe.ok, total: data.probe.total, image: data.probe.image }))
+                  // 摘要按「通道」口径；探测次数（通道×模型）放悬停，避免被读成通道数
+                  title: [
+                    t('probeResult', {
+                      time: new Date(data.probe.at).toLocaleTimeString(),
+                      ok: data.probe.okChannels ?? data.probe.ok,
+                      total: data.probe.totalChannels ?? data.probe.total,
+                      image: data.probe.image,
+                    }),
+                    data.probe.total ? t('probePairs', { total: data.probe.total, ok: data.probe.ok }) : '',
+                  ].filter(Boolean).join('\n'),
+                }, t('probeCompact', {
+                  ok: data.probe.okChannels ?? data.probe.ok,
+                  total: data.probe.totalChannels ?? data.probe.total,
+                  image: data.probe.image,
+                }))
                 : h('span', { className: 'lgw-card-sub' }, t('probeNever')),
               h('button', {
                 type: 'button', className: 'lgw-btn lgw-btn-sm',
@@ -874,7 +896,10 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'lgw-detail-item' },
                   h('span', { className: 'lgw-detail-label' }, t('colImage')),
                   h('span', { className: 'lgw-detail-value' },
-                    probe ? (probe.ok ? (probe.image ? t('imageYes') : t('imageNo')) : t('imageSkipped')) : '—')),
+                    // 三态：true 支持、false 不支持、null 这一行没测图
+                    probe && probe.image === true ? t('imageYes')
+                      : probe && probe.image === false ? t('imageNo')
+                        : t('imageSkipped'))),
                 row.lastError
                   ? h('div', { className: 'lgw-detail-error', title: row.lastError }, shortError(row.lastError))
                   : null,

@@ -107,11 +107,17 @@ const status = {
   models: ['DeepSeek-V4.1-Flash', 'GLM-5.3-Flash', 'grok-4.5', 'grok-4.6', 'grok-4.7', 'nvidia/nemotron-3.5-super-vl-120b-a12b'],
   allModels: ['gpt-4o', 'claude-opus-4-5'],
   probe: {
-    at: Date.now(), ok: 2, total: 4, image: 1,
+    at: Date.now(), ok: 6, total: 8, okChannels: 3, totalChannels: 5, image: 1, channels: 5,
+    // 一个通道多行（代表模型 + 白名单模型），芯片才有各自延迟可比
     rows: [
-      { channel: 'ch19-wududu-edu-kg', site: 'wududu', model: 'DeepSeek-V4.1-Flash', ok: true, ms: 1306, image: true },
-      { channel: 'ch4-api-chengmo-cc-cd', site: '城陌公益站', model: 'DeepSeek-V4.1-Flash', ok: true, ms: 4725, image: false },
-      { channel: 'ch14-api-hcnsec-cn', site: 'hcnsec', model: 'DeepSeek-V4.1-Flash', ok: false, ms: 0, status: 0 },
+      { channel: 'ch19-wududu-edu-kg', site: 'wududu', model: 'DeepSeek-V4.1-Flash', representative: true, ok: true, ms: 1306, image: true },
+      { channel: 'ch4-api-chengmo-cc-cd', site: '城陌公益站', model: 'DeepSeek-V4.1-Flash', representative: true, ok: true, ms: 4725, image: false },
+      { channel: 'ch14-api-hcnsec-cn', site: 'hcnsec', model: 'DeepSeek-V4.1-Flash', representative: true, ok: false, ms: 0, status: 504, image: null },
+      { channel: 'ch19-wududu-edu-kg', site: 'wududu', model: 'grok-4.7', representative: false, ok: true, ms: 1180, image: null },
+      { channel: 'ch4-api-chengmo-cc-cd', site: '城陌公益站', model: 'grok-4.7', representative: false, ok: true, ms: 6400, image: null },
+      { channel: 'ch18-integrate-api-nvidia-com', site: '英伟达', model: 'grok-4.7', representative: true, ok: true, ms: 2656, image: false },
+      { channel: 'ch1-elysiver-h-e-top', site: 'elysiver', model: 'grok-4.5', representative: true, ok: false, ms: 0, status: 401, image: null },
+      { channel: 'ch4-api-chengmo-cc-cd', site: '城陌公益站', model: 'GLM-5.3-Flash', representative: false, ok: true, ms: 4545, image: null },
     ],
   },
   pins: { 'DeepSeek-V4.1-Flash': ['ch19-wududu-edu-kg'] },

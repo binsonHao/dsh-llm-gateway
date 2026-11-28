@@ -13,3 +13,4 @@ preview*.html
 shot-*.png
 .crud-*/
 .route-*.mjs
+.probe-*/
