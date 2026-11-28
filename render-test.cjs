@@ -67,7 +67,8 @@ const status = {
   modelCount: 5,
   totalModelCount: 231,
   models: ['DeepSeek-V4.1-Flash', 'GLM-5.3-Flash', 'grok-4.5', 'grok-4.6', 'grok-4.7'],
-  allModels: ['gpt-4o', 'claude-opus-4-5', 'temperatures-outside-allowlist'],
+  allowlist: ['DeepSeek-V4.1-Flash', 'GLM-5.3-Flash', 'grok-4.5', 'grok-4.6', 'grok-4.7'],
+  allModels: ['DeepSeek-V4.1-Flash', 'GLM-5.3-Flash', 'grok-4.5', 'grok-4.6', 'grok-4.7', 'gpt-4o', 'temperatures-outside-allowlist'],
   probe: {
     at: Date.now(), ok: 4, total: 6, okChannels: 2, totalChannels: 3, image: 1,
     // 同一通道多行：代表模型 + 白名单模型，芯片才有各自延迟
@@ -287,8 +288,36 @@ console.log(`\n分组：${[...families].join(' / ')}`);
   if (process.env.DEBUG) { const chips=[...flat.matchAll(/lgw-chip-text[^]*?kids.:..([^"]+)/g)].map(m=>m[1]); console.log('  芯片:', chips.join(' | ')); }
   const perModelOk = flat.includes('1180ms') && flat.includes('6400ms');
   console.log(`${perModelOk ? '✓' : '✗'} 候选通道分模型延迟${perModelOk ? '' : ' — 同一模型的候选只显示未测，没有各自延迟'}`);
+
+  // 显示全部模型时，每行要能把它加入/移出热门清单
+  const allTree = await (async () => {
+    // 显示全部模型 + 搜索，强制展开分组，才能看到行内的加入/移出按钮
+    const body6 = body
+      .replace(
+        'const [showAll, setShowAll] = React.useState(false);',
+        'const [showAll, setShowAll] = React.useState(true);',
+      )
+      .replace(
+        "const [search, setSearch] = React.useState('');",
+        "const [search, setSearch] = React.useState('grok');",
+      );
+    const m6 = new Function('require', 'window', 'globalThis', `${body6}\nreturn { LlmGatewayPage, zh };`)(
+      () => React, { __ModuleLoader__: {} }, globalThis,
+    );
+    React.__reset();
+    React.__renderPass(m6, t);
+    React.__runEffects();
+    await new Promise(r => setImmediate(r));
+    await new Promise(r => setTimeout(r, 20));
+    React.__rewind();
+    return React.__renderPass(m6, t);
+  })();
+  const flatAll = JSON.stringify(allTree);
+  const hotOk = flatAll.includes(dict.unmarkHot) && flatAll.includes(dict.hotHint);
+  if (process.env.DEBUG) console.log('  unmarkHot:', flatAll.includes(dict.unmarkHot), '| hotHint:', flatAll.includes(dict.hotHint), '| markHot:', flatAll.includes(dict.markHot), '| showAll 组数:', (flatAll.match(/lgw-group-name/g)||[]).length);
+  console.log(`${hotOk ? '✓' : '✗'} 热门清单可编辑${hotOk ? '' : ' — 显示全部模型时没有加入/移出热门的入口'}`);
   globalThis.fetch = orig;
-  process.exit(failed === 0 && detailOk && searchOk && formOk && delOk && confirmOk && perModelOk ? 0 : 1);
+  process.exit(failed === 0 && detailOk && searchOk && formOk && delOk && confirmOk && perModelOk && hotOk ? 0 : 1);
 })();
 
 });

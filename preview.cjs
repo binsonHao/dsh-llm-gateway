@@ -105,7 +105,8 @@ const status = {
   ],
   healthy: 3, verified: 2, modelCount: 5, totalModelCount: 231,
   models: ['DeepSeek-V4.1-Flash', 'GLM-5.3-Flash', 'grok-4.5', 'grok-4.6', 'grok-4.7', 'nvidia/nemotron-3.5-super-vl-120b-a12b'],
-  allModels: ['gpt-4o', 'claude-opus-4-5'],
+  allowlist: ['DeepSeek-V4.1-Flash', 'GLM-5.3-Flash', 'grok-4.5', 'grok-4.6', 'grok-4.7'],
+  allModels: ['DeepSeek-V4.1-Flash', 'GLM-5.3-Flash', 'grok-4.5', 'grok-4.6', 'grok-4.7', 'gpt-4o', 'claude-opus-4-5', 'nvidia/nemotron-3.5-super-vl-120b-a12b'],
   probe: {
     at: Date.now(), ok: 6, total: 8, okChannels: 3, totalChannels: 5, image: 1, channels: 5,
     // 一个通道多行（代表模型 + 白名单模型），芯片才有各自延迟可比

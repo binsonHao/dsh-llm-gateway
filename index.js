@@ -123,6 +123,8 @@ class Relay {
       totalModelCount: summary?.totalModels ?? summary?.models ?? 0,
       models: this.gateway?.running ? this.gateway.models() : [],
       allModels: this.gateway?.running ? this.gateway.allModels() : [],
+      // 热门清单原文（不是过滤后的结果），界面用它判断某个模型在不在清单里
+      allowlist: this.allowlist(),
       probe: readProbeSnapshot(this.settings.dir),
       pins: this.gateway?.running ? this.gateway.pins() : {},
     }
@@ -175,6 +177,16 @@ class Relay {
     return this.status()
   }
 
+  /** 读 gateway.json 里的热门清单原文。读不到就当没设置过。 */
+  allowlist() {
+    try {
+      const config = JSON.parse(readFileSync(join(this.settings.dir, 'gateway.json'), 'utf8'))
+      return Array.isArray(config.models) ? config.models.map(String) : []
+    } catch {
+      return []
+    }
+  }
+
   /** 写热门模型白名单到 gateway.json；空数组=恢复暴露全部。 */
   async setAllowlist(models) {
     const file = join(this.settings.dir, 'gateway.json')
@@ -186,8 +198,8 @@ class Relay {
     }
     config.models = models
     writeFileSync(file, JSON.stringify(config, null, 2), 'utf8')
-    // config 是启动时读进内存的，改文件后必须重启进程才生效
-    if (this.gateway?.running) await this.restart()
+    // 内存里那份也同步改掉，避免为了改清单把整个监听重启一遍
+    if (this.gateway?.running) this.gateway.setAllowlist(models)
     return this.status()
   }
 

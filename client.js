@@ -46,6 +46,7 @@ window.__ModuleLoader__.load({
       addChannel: channel => postJson('channel/add', { channel }),
       updateChannel: channel => postJson('channel/update', { channel }),
       deleteChannel: id => postJson('channel/delete', { id }),
+      setAllowlist: models => postJson('allowlist', { models }),
     };
 
     const zh = {
@@ -93,6 +94,11 @@ window.__ModuleLoader__.load({
       fieldBase: 'Base URL（不要带 /v1）',
       fieldKey: 'API Key',
       keyKeepHint: '留空表示不修改',
+      markHot: '加入热门',
+      unmarkHot: '移出热门',
+      hotAdded: '已加入热门清单：{model}',
+      hotRemoved: '已移出热门清单：{model}',
+      hotHint: '「加入热门」后该模型才会被对外暴露；清单为空表示暴露全部。',
       fieldPriority: '优先级（50 默认，大的先试）',
       fieldModels: '模型列表（每行一个）',
       fieldAlias: '模型别名（可选，统一名=上游名）',
@@ -174,6 +180,11 @@ window.__ModuleLoader__.load({
       fieldBase: 'Base URL (no /v1 suffix)',
       fieldKey: 'API key',
       keyKeepHint: 'leave blank to keep current',
+      markHot: 'Add to hot',
+      unmarkHot: 'Remove from hot',
+      hotAdded: 'Added to the hot list: {model}',
+      hotRemoved: 'Removed from the hot list: {model}',
+      hotHint: '"Add to hot" makes a model visible to clients; an empty list exposes everything.',
       fieldPriority: 'Priority (50 default, higher tried first)',
       fieldModels: 'Models (one per line)',
       fieldAlias: 'Model aliases (optional, public=upstream)',
@@ -417,6 +428,11 @@ window.__ModuleLoader__.load({
       .lgw-mini:hover { color: inherit; border-color: ${STYLE_TOKENS.borderStrong}; }
       .lgw-mini-danger { color: ${STYLE_TOKENS.red}; border-color: ${STYLE_TOKENS.red}; }
       .lgw-mini-danger:hover { background: var(--dsw-static-red-400-a12, rgba(176,72,60,.12)); }
+      /* 每行都挂一颗红框按钮太吵：平时低调，悬停才提示「这是移除动作」 */
+      .lgw-mini-hollow { border-color: transparent; background: transparent; color: ${STYLE_TOKENS.textTertiary}; }
+      .lgw-mini-hollow:hover { color: inherit; border-color: ${STYLE_TOKENS.borderStrong}; }
+      .lgw-mini-hot:hover { color: ${STYLE_TOKENS.red}; border-color: ${STYLE_TOKENS.red};
+        background: var(--dsw-static-red-400-a12, rgba(176,72,60,.12)); }
 
       /* ---------- 开关与提示 ---------- */
       .lgw-switch {
@@ -567,8 +583,13 @@ window.__ModuleLoader__.load({
         return map;
       }, [probeRows, rows]);
 
-      function channelsFor(model) {
-        const list = candidatesByModel.get(model) ?? [];
+      // 白名单原文可能和过滤后的列表不同（比如刚改过还没刷新）
+      const hotSet = new globalThis.Set(data?.allowlist ?? data?.models ?? []);
+      function isHot(model) {
+        return hotSet.has(model);
+      }
+
+      function channelsFor(model) {        const list = candidatesByModel.get(model) ?? [];
         const pinnedFor = new Set(data?.pins?.[model] ?? []);
         return list
           .map(row => ({
@@ -700,8 +721,25 @@ window.__ModuleLoader__.load({
         }
       }
 
-      async function removeChannel(id) {
-        setBusy('delete-channel');
+      /** 把模型加入/移出热门清单。清单变更立即生效，不重启监听。 */
+      async function toggleHot(model, add) {
+        const current = data?.allowlist ?? [];
+        const next = add
+          ? [...current.filter(item => item !== model), model]
+          : current.filter(item => item !== model);
+        setBusy('allowlist');
+        try {
+          const fresh = await api.setAllowlist(next);
+          setState({ loading: false, data: fresh, error: null });
+          setNotice({ tone: 'ok', text: t(add ? 'hotAdded' : 'hotRemoved', { model }) });
+        } catch (reason) {
+          setNotice({ tone: 'error', text: t('failed', { message: errorMessage(reason) }) });
+        } finally {
+          setBusy(null);
+        }
+      }
+
+      async function removeChannel(id) {        setBusy('delete-channel');
         try {
           const fresh = await api.deleteChannel(id);
           setState({ loading: false, data: fresh, error: null });
@@ -950,6 +988,7 @@ window.__ModuleLoader__.load({
                 h('input', { type: 'checkbox', checked: showAll, onChange: event => setShowAll(event.target.checked) }),
                 t('showAll')))),
           h('p', { className: 'lgw-card-sub', style: { margin: '0 0 4px' } }, t('pickHint')),
+          showAll ? h('p', { className: 'lgw-card-sub', style: { margin: '0 0 4px' } }, t('hotHint')) : null,
           groupedModels.length === 0
             ? h('p', { className: 'lgw-empty' }, t('noMatch'))
             : null,
@@ -988,7 +1027,14 @@ window.__ModuleLoader__.load({
                     }, t('clearPin')) : null,
                     info.usable === 0
                       ? h('span', { className: 'lgw-badge lgw-badge-cool' }, t('unusable'))
-                      : null),
+                      : null,
+                    // 「显示全部模型」时才能增删热门清单——不然看不到清单外的模型
+                    showAll ? h('button', {
+                      type: 'button',
+                      className: `lgw-mini lgw-mini-hollow${isHot(model) ? ' lgw-mini-hot' : ''}`,
+                      disabled: busy === 'allowlist',
+                      onClick: () => toggleHot(model, !isHot(model)),
+                    }, isHot(model) ? t('unmarkHot') : t('markHot')) : null),
                   h('div', { className: 'lgw-chips' }, candidates.map(candidate => h('button', {
                     key: candidate.id,
                     type: 'button',
