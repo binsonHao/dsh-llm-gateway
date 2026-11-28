@@ -43,6 +43,9 @@ window.__ModuleLoader__.load({
       probe: () => callApi('probe', { method: 'POST' }),
       probeSnapshot: () => callApi('probe'),
       pin: (model, channelId) => postJson('pin', { model, channelId }),
+      addChannel: channel => postJson('channel/add', { channel }),
+      updateChannel: channel => postJson('channel/update', { channel }),
+      deleteChannel: id => postJson('channel/delete', { id }),
     };
 
     const zh = {
@@ -79,6 +82,25 @@ window.__ModuleLoader__.load({
       searchModels: '搜索模型',
       noMatch: '没有匹配的模型',
       stoppedHint: '点「启动」后，这里会显示通道健康状况和可调度的模型。',
+      addChannel: '新增通道',
+      edit: '编辑',
+      save: '保存',
+      cancel: '取消',
+      delete: '删除',
+      confirmDelete: '确认删除',
+      fieldId: '通道 ID',
+      fieldSite: '站点名',
+      fieldBase: 'Base URL（不要带 /v1）',
+      fieldKey: 'API Key',
+      keyKeepHint: '留空表示不修改',
+      fieldPriority: '优先级（50 默认，大的先试）',
+      fieldModels: '模型列表（每行一个）',
+      fieldAlias: '模型别名（可选，统一名=上游名）',
+      aliasFormat: '别名格式不对，每行要写成「统一模型名=上游模型名」',
+      channelAdded: '已新增通道 {id}',
+      channelUpdated: '已保存通道 {id}',
+      channelDeleted: '已删除通道 {id}',
+
       pickHint: '点通道名把它设为该模型的首选；再点一次取消。首选通道不可用时会自动切下一个。',
       pinnedTag: '首选',
       noProbe: '未测',
@@ -140,6 +162,25 @@ window.__ModuleLoader__.load({
       searchModels: 'Search models',
       noMatch: 'No matching model',
       stoppedHint: 'Press Start to see channel health and the dispatched models here.',
+      addChannel: 'Add channel',
+      edit: 'Edit',
+      save: 'Save',
+      cancel: 'Cancel',
+      delete: 'Delete',
+      confirmDelete: 'Confirm delete',
+      fieldId: 'Channel ID',
+      fieldSite: 'Site name',
+      fieldBase: 'Base URL (no /v1 suffix)',
+      fieldKey: 'API key',
+      keyKeepHint: 'leave blank to keep current',
+      fieldPriority: 'Priority (50 default, higher tried first)',
+      fieldModels: 'Models (one per line)',
+      fieldAlias: 'Model aliases (optional, public=upstream)',
+      aliasFormat: 'Alias format is wrong — one "public=upstream" per line',
+      channelAdded: 'Channel {id} added',
+      channelUpdated: 'Channel {id} saved',
+      channelDeleted: 'Channel {id} deleted',
+
       pickHint: 'Click a channel to prefer it for this model; click again to unselect. If it fails, the next one takes over.',
       pinnedTag: 'preferred',
       noProbe: 'not probed',
@@ -197,6 +238,8 @@ window.__ModuleLoader__.load({
         padding: 8px 4px 32px; color: ${STYLE_TOKENS.text};
         container-type: inline-size;
       }
+      /* 输入框是 width:100% + padding + border，默认 content-box 会横向溢出 20px */
+      .lgw-page, .lgw-page *, .lgw-page *::before, .lgw-page *::after { box-sizing: border-box; }
 
       /* ---------- 页头 ---------- */
       .lgw-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
@@ -290,6 +333,27 @@ window.__ModuleLoader__.load({
         background: ${STYLE_TOKENS.surfaceSunken}; border-radius: 6px; padding: 8px 10px;
         word-break: break-word; white-space: pre-wrap; line-height: 1.5;
       }
+      .lgw-detail-actions { flex: 1 1 100%; display: flex; gap: 8px; flex-wrap: wrap; }
+
+      /* ---------- 新增 / 编辑表单 ---------- */
+      .lgw-btn-sm { padding: 4px 10px; font-size: 12px; }
+      .lgw-form {
+        border: 1px solid ${STYLE_TOKENS.border}; border-radius: 10px;
+        padding: 14px; margin: 4px 0 12px; background: ${STYLE_TOKENS.surfaceSunken};
+      }
+      .lgw-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+      .lgw-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+      .lgw-field-wide { grid-column: 1 / -1; }
+      .lgw-field-label { font-size: 11px; color: ${STYLE_TOKENS.textTertiary}; }
+      .lgw-input {
+        font: inherit; font-size: 12.5px; padding: 6px 9px; width: 100%;
+        border-radius: 7px; border: 1px solid ${STYLE_TOKENS.border};
+        background: ${STYLE_TOKENS.surface}; color: inherit;
+      }
+      .lgw-input:disabled { opacity: .6; cursor: not-allowed; }
+      .lgw-input:focus-visible { outline: 2px solid ${STYLE_TOKENS.accent}; outline-offset: -1px; }
+      .lgw-textarea { resize: vertical; font-family: var(--dsw-font-mono, ui-monospace, monospace); font-size: 12px; }
+      .lgw-form-actions { display: flex; gap: 8px; margin-top: 14px; }
 
       /* ---------- 状态徽标 ---------- */
       .lgw-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; flex: none; }
@@ -349,6 +413,8 @@ window.__ModuleLoader__.load({
         color: ${STYLE_TOKENS.textSecondary};
       }
       .lgw-mini:hover { color: inherit; border-color: ${STYLE_TOKENS.borderStrong}; }
+      .lgw-mini-danger { color: ${STYLE_TOKENS.red}; border-color: ${STYLE_TOKENS.red}; }
+      .lgw-mini-danger:hover { background: var(--dsw-static-red-400-a12, rgba(176,72,60,.12)); }
 
       /* ---------- 开关与提示 ---------- */
       .lgw-switch {
@@ -413,6 +479,9 @@ window.__ModuleLoader__.load({
       // 分组展开状态；未记录的家族跟随 showAll（默认全展开，显示全部模型时默认收起）
       const [familyOpen, setFamilyOpen] = React.useState({});
       const [search, setSearch] = React.useState('');
+      // 通道编辑面板：null = 关闭；mode=add 新增，mode=edit 改现有通道
+      const [draft, setDraft] = React.useState(null);
+      const [confirmDelete, setConfirmDelete] = React.useState(null);
       const titleId = React.useId();
 
       const load = React.useCallback(async () => {
@@ -556,12 +625,81 @@ window.__ModuleLoader__.load({
         });
       })();
 
-      async function choosePin(model, channelId) {        try {
+      async function choosePin(model, channelId) {
+        try {
           const fresh = await api.pin(model, channelId);
           setState({ loading: false, data: fresh, error: null });
           setNotice({ tone: 'ok', text: channelId ? `${model} → ${channelId}` : `${model} ${t('clearPin')}` });
         } catch (reason) {
           setNotice({ tone: 'error', text: t('failed', { message: errorMessage(reason) }) });
+        }
+      }
+
+      /** 打开空表单，或把现有通道填进表单。 */
+      function openDraft(row) {
+        setConfirmDelete(null);
+        setNotice(null);
+        setDraft(row
+          ? {
+            mode: 'edit',
+            id: row.id,
+            site: row.site ?? '',
+            base: row.base ?? '',
+            key: '',                       // 界面拿不到原密钥，留空表示不改
+            priority: String(row.priority ?? 50),
+            models: (row.modelList ?? []).join('\n'),
+            aliasText: Object.entries(row.alias ?? {}).map(([from, to]) => `${from}=${to}`).join('\n'),
+          }
+          : { mode: 'add', id: '', site: '', base: '', key: '', priority: '50', models: '', aliasText: '' });
+      }
+
+      async function saveDraft() {
+        if (!draft) return;
+        const alias = {};
+        for (const line of String(draft.aliasText).split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          const at = trimmed.indexOf('=');
+          if (at < 0) {
+            setNotice({ tone: 'error', text: t('aliasFormat') });
+            return;
+          }
+          alias[trimmed.slice(0, at).trim()] = trimmed.slice(at + 1).trim();
+        }
+        const channel = {
+          id: draft.id, site: draft.site, base: draft.base, key: draft.key,
+          priority: Number(draft.priority) || 50,
+          models: draft.models,
+          alias,
+        };
+        setBusy('save-channel');
+        try {
+          const fresh = draft.mode === 'add'
+            ? await api.addChannel(channel)
+            : await api.updateChannel(channel);
+          setState({ loading: false, data: fresh, error: null });
+          const added = draft.mode === 'add';
+          setDraft(null);
+          setNotice({ tone: 'ok', text: t(added ? 'channelAdded' : 'channelUpdated', { id: channel.id }) });
+        } catch (reason) {
+          setNotice({ tone: 'error', text: t('failed', { message: errorMessage(reason) }) });
+        } finally {
+          setBusy(null);
+        }
+      }
+
+      async function removeChannel(id) {
+        setBusy('delete-channel');
+        try {
+          const fresh = await api.deleteChannel(id);
+          setState({ loading: false, data: fresh, error: null });
+          setConfirmDelete(null);
+          setDraft(null);
+          setNotice({ tone: 'ok', text: t('channelDeleted', { id }) });
+        } catch (reason) {
+          setNotice({ tone: 'error', text: t('failed', { message: errorMessage(reason) }) });
+        } finally {
+          setBusy(null);
         }
       }
 
@@ -623,16 +761,79 @@ window.__ModuleLoader__.load({
         data?.running && rows.length > 0 ? h('div', { className: 'lgw-card' },
           h('div', { className: 'lgw-card-head' },
             h('h3', { className: 'lgw-card-title' }, t('channels')),
-            probeRows.length > 0
-              ? h('span', {
-                className: 'lgw-card-sub',
-                // 完整信息（含测速时间）放悬停，视线只留「能不能用」
-                title: t('probeResult', {
-                  time: new Date(data.probe.at).toLocaleTimeString(),
-                  ok: data.probe.ok, total: data.probe.total, image: data.probe.image,
-                }),
-              }, t('probeCompact', { ok: data.probe.ok, total: data.probe.total, image: data.probe.image }))
-              : h('span', { className: 'lgw-card-sub' }, t('probeNever'))),
+            h('div', { className: 'lgw-card-tools' },
+              probeRows.length > 0
+                ? h('span', {
+                  className: 'lgw-card-sub',
+                  title: t('probeResult', {
+                    time: new Date(data.probe.at).toLocaleTimeString(),
+                    ok: data.probe.ok, total: data.probe.total, image: data.probe.image,
+                  }),
+                }, t('probeCompact', { ok: data.probe.ok, total: data.probe.total, image: data.probe.image }))
+                : h('span', { className: 'lgw-card-sub' }, t('probeNever')),
+              h('button', {
+                type: 'button', className: 'lgw-btn lgw-btn-sm',
+                disabled: Boolean(busy), onClick: () => openDraft(null),
+              }, t('addChannel')))),
+          draft ? h('div', { className: 'lgw-form' },
+            h('div', { className: 'lgw-form-grid' },
+              h('label', { className: 'lgw-field' },
+                h('span', { className: 'lgw-field-label' }, t('fieldId')),
+                h('input', {
+                  className: 'lgw-input', value: draft.id, disabled: draft.mode === 'edit',
+                  placeholder: 'ch1-example-com',
+                  onChange: event => setDraft({ ...draft, id: event.target.value }),
+                })),
+              h('label', { className: 'lgw-field' },
+                h('span', { className: 'lgw-field-label' }, t('fieldSite')),
+                h('input', {
+                  className: 'lgw-input', value: draft.site, placeholder: 'elysiver',
+                  onChange: event => setDraft({ ...draft, site: event.target.value }),
+                })),
+              h('label', { className: 'lgw-field' },
+                h('span', { className: 'lgw-field-label' }, t('fieldPriority')),
+                h('input', {
+                  className: 'lgw-input', value: draft.priority, inputMode: 'numeric',
+                  onChange: event => setDraft({ ...draft, priority: event.target.value }),
+                })),
+              h('label', { className: 'lgw-field lgw-field-wide' },
+                h('span', { className: 'lgw-field-label' }, t('fieldBase')),
+                h('input', {
+                  className: 'lgw-input', value: draft.base, placeholder: 'https://api.example.com',
+                  onChange: event => setDraft({ ...draft, base: event.target.value }),
+                })),
+              h('label', { className: 'lgw-field lgw-field-wide' },
+                h('span', { className: 'lgw-field-label' },
+                  t('fieldKey'),
+                  draft.mode === 'edit' ? ` · ${t('keyKeepHint')}` : ''),
+                h('input', {
+                  className: 'lgw-input', value: draft.key,
+                  placeholder: draft.mode === 'edit' ? t('keyKeepHint') : 'sk-…',
+                  onChange: event => setDraft({ ...draft, key: event.target.value }),
+                })),
+              h('label', { className: 'lgw-field lgw-field-wide' },
+                h('span', { className: 'lgw-field-label' }, t('fieldModels')),
+                h('textarea', {
+                  className: 'lgw-input lgw-textarea', rows: 4, value: draft.models,
+                  placeholder: 'DeepSeek-V4.1-Flash\ngrok-4.7',
+                  onChange: event => setDraft({ ...draft, models: event.target.value }),
+                })),
+              h('label', { className: 'lgw-field lgw-field-wide' },
+                h('span', { className: 'lgw-field-label' }, t('fieldAlias')),
+                h('textarea', {
+                  className: 'lgw-input lgw-textarea', rows: 2, value: draft.aliasText,
+                  placeholder: 'DeepSeek-V4.1-Flash=deepseek-ai/DeepSeek-V4.1-Flash-1017',
+                  onChange: event => setDraft({ ...draft, aliasText: event.target.value }),
+                }))),
+            h('div', { className: 'lgw-form-actions' },
+              h('button', {
+                type: 'button', className: 'lgw-btn lgw-btn-primary',
+                disabled: busy === 'save-channel', onClick: saveDraft,
+              }, busy === 'save-channel' ? t('busy') : t('save')),
+              h('button', {
+                type: 'button', className: 'lgw-btn',
+                disabled: Boolean(busy), onClick: () => { setDraft(null); setNotice(null); },
+              }, t('cancel')))) : null,
           h('div', { className: 'lgw-rows' }, rows.map(row => {
             const probe = probeByChannel.get(row.id);
             const dead = probe ? !probe.ok : !row.healthy;
@@ -676,7 +877,30 @@ window.__ModuleLoader__.load({
                     probe ? (probe.ok ? (probe.image ? t('imageYes') : t('imageNo')) : t('imageSkipped')) : '—')),
                 row.lastError
                   ? h('div', { className: 'lgw-detail-error', title: row.lastError }, shortError(row.lastError))
-                  : null)
+                  : null,
+                h('div', { className: 'lgw-detail-actions' },
+                  h('button', {
+                    type: 'button', className: 'lgw-mini',
+                    disabled: Boolean(busy),
+                    onClick: () => openDraft(row),
+                  }, t('edit')),
+                  confirmDelete === row.id
+                    ? h('button', {
+                      type: 'button', className: 'lgw-mini lgw-mini-danger',
+                      disabled: Boolean(busy),
+                      onClick: () => removeChannel(row.id),
+                    }, busy === 'delete-channel' ? t('busy') : t('confirmDelete'))
+                    : h('button', {
+                      type: 'button', className: 'lgw-mini',
+                      disabled: Boolean(busy),
+                      onClick: () => setConfirmDelete(row.id),
+                    }, t('delete')),
+                  confirmDelete === row.id
+                    ? h('button', {
+                      type: 'button', className: 'lgw-mini',
+                      onClick: () => setConfirmDelete(null),
+                    }, t('cancel'))
+                    : null))
                 : null);
           }))) : null,
 

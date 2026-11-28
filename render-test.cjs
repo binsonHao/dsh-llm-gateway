@@ -80,26 +80,23 @@ const status = {
   pins: { 'DeepSeek-V4.1-Flash': ['ch19-wududu-edu-kg'] },
 };
 
-const dict = {
-  title: '本地中转站', description: 'desc', running: '运行中', base: '出口地址', dir: '工作目录', channels: '通道',
-  healthy: '健康', verified: '实测通过', models: '模型', restart: '重启', stop: '停止', reload: '热加载', probe: '测速', refresh: '刷新',
-  channelId: '通道', site: '站点', state: '状态', colLatency: '实测延迟', colImage: '图片', fails: '失败', latency: '延迟', lastError: '最近错误',
-  okState: '正常', coolState: '冷却中', modelList: '热门模型与通道选择', showAll: '显示全部模型',
-  pickHint: '点通道名把它设为该模型的首选', pinnedTag: '首选', clearPin: '恢复自动', unprobed: '未测',
-  imageYes: '支持', imageNo: '不支持', imageSkipped: '—', noProbe: '未测', probeNever: '还没测过',
-};
-const t = (key, vars) => {
-  if (key === 'probeResult') return `最近测速：${vars?.ok}/${vars?.total}`;
-  return dict[key] ?? key;
-};
-
-globalThis.fetch = async () => ({ ok: true, json: async () => status });
-
-const mod = new Function('require', 'window', 'globalThis', `${body}\nreturn { LlmGatewayPage };`)(
+const mod = new Function('require', 'window', 'globalThis', `${body}\nreturn { LlmGatewayPage, zh };`)(
   () => React,
   { __ModuleLoader__: {} },
   globalThis,
 );
+
+// 字典和 t() 都用组件里的真实实现，否则新增文案在测试里根本看不见
+const dict = mod.zh;
+const t = (key, vars) => {
+  const raw = dict[key] ?? key;
+  if (!vars) return raw;
+  return raw.replace(/\{(\w+)\}/g, (_, name) => String(vars[name] ?? ''));
+};
+
+globalThis.fetch = async () => ({ ok: true, json: async () => status });
+
+
 
 // 首渲染 → 立刻执行本次渲染登记的 effect（load）→ 等 promise → 再渲染
 async function render() {
@@ -146,6 +143,7 @@ const checks = [
   ['通道行渲染', rowCount === 3, `期望 3 个通道行，实际 ${rowCount}`],
   ['字典对齐', dictGap.length === 0, `en 缺少 ${dictGap.length} 个 key：${dictGap.join(', ')}`],
   ['运行中不显示启动提示', !flat.includes(dict.stoppedHint), '运行中却出现了「点启动后…」的提示'],
+  ['新增通道入口', flat.includes(dict.addChannel), '没有「新增通道」按钮'],
   ['白名单外不泄漏', !flat.includes('temperatures-outside-allowlist'), 'allModels 混进了默认视图'],
   ['首选标记', flat.includes('"首选"'), '没有渲染首选标记'],
   ['ch19 出现', flat.includes('ch19-wududu-edu-kg'), '固定优先的 ch19 没渲染出来（旧快照覆盖了通道声明）'],
@@ -227,8 +225,62 @@ console.log(`\n分组：${[...families].join(' / ')}`);
     && !flatSearch.includes('DeepSeek-V4.1-Flash')
     && !flatSearch.includes('GLM-5.3-Flash');
   console.log(`${searchOk ? '✓' : '✗'} 搜索过滤${searchOk ? '' : ' — 输入 grok 后仍能看到无关模型'}`);
+
+  // 新增表单：打开后必须出现 ID / Base URL / 模型 三个关键字段
+  const formTree = await (async () => {
+    const body4 = body.replace(
+      'const [draft, setDraft] = React.useState(null);',
+      "const [draft, setDraft] = React.useState({ mode: 'add', id: '', site: '', base: '', key: '', priority: '50', models: '', aliasText: '' });",
+    );
+    const m4 = new Function('require', 'window', 'globalThis', `${body4}\nreturn { LlmGatewayPage, zh };`)(
+      () => React, { __ModuleLoader__: {} }, globalThis,
+    );
+    React.__reset();
+    React.__renderPass(m4, t);
+    React.__runEffects();
+    await new Promise(r => setImmediate(r));
+    await new Promise(r => setTimeout(r, 20));
+    React.__rewind();
+    return React.__renderPass(m4, t);
+  })();
+  const flatForm = JSON.stringify(formTree);
+  const formOk = flatForm.includes('lgw-form')
+    && flatForm.includes(dict.fieldId)
+    && flatForm.includes(dict.fieldBase)
+    && flatForm.includes(dict.fieldModels)
+    && flatForm.includes(dict.fieldAlias);
+  if (process.env.DEBUG) { console.log('  含 lgw-form:', flatForm.includes('lgw-form'), '| fieldId:', flatForm.includes(dict.fieldId), '| fieldBase:', flatForm.includes(dict.fieldBase), '| fieldModels:', flatForm.includes(dict.fieldModels), '| fieldAlias:', flatForm.includes(dict.fieldAlias)); }
+  console.log(`${formOk ? '✓' : '✗'} 新增表单字段${formOk ? '' : ' — 表单缺字段或没渲染'}`);
+
+  // 展开行里必须有「编辑」「删除」，点了删除要出现二次确认
+  const delOk = flatOpen.includes(dict.edit) && flatOpen.includes(dict.delete) && flatOpen.includes(dict.cancel);
+  console.log(`${delOk ? '✓' : '✗'} 通道编辑/删除入口${delOk ? '' : ' — 展开详情里没有编辑或删除按钮'}`);
+
+  const confirmTree = await (async () => {
+    const body5 = body
+      .replace(
+        'const [confirmDelete, setConfirmDelete] = React.useState(null);',
+        "const [confirmDelete, setConfirmDelete] = React.useState('ch1-elysiver-h-e-top');",
+      )
+      .replace(
+        'const [openChannel, setOpenChannel] = React.useState(null);',
+        "const [openChannel, setOpenChannel] = React.useState('ch1-elysiver-h-e-top');",
+      );
+    const m5 = new Function('require', 'window', 'globalThis', `${body5}\nreturn { LlmGatewayPage, zh };`)(
+      () => React, { __ModuleLoader__: {} }, globalThis,
+    );
+    React.__reset();
+    React.__renderPass(m5, t);
+    React.__runEffects();
+    await new Promise(r => setImmediate(r));
+    await new Promise(r => setTimeout(r, 20));
+    React.__rewind();
+    return React.__renderPass(m5, t);
+  })();
+  const confirmOk = JSON.stringify(confirmTree).includes(dict.confirmDelete);
+  console.log(`${confirmOk ? '✓' : '✗'} 删除二次确认${confirmOk ? '' : ' — 点删除后没有出现确认按钮'}`);
   globalThis.fetch = orig;
-  process.exit(failed === 0 && detailOk && searchOk ? 0 : 1);
+  process.exit(failed === 0 && detailOk && searchOk && formOk && delOk && confirmOk ? 0 : 1);
 })();
 
 });

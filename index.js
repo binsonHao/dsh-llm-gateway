@@ -11,7 +11,9 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Schema from '@deepseek-ai/schemastery'
-import { createGateway, ensureConfig } from './lib/gateway.mjs'
+import {
+  createGateway, ensureConfig, normalizeChannel, readChannelFile, writeChannelFile,
+} from './lib/gateway.mjs'
 import { probeAll, readProbeSnapshot } from './lib/probe.mjs'
 
 export const name = 'llm-gateway'
@@ -189,6 +191,84 @@ class Relay {
     return this.status()
   }
 
+  /** 新增通道。ID 必须唯一，否则会静默覆盖掉原来的通道。 */
+  async addChannel(input) {
+    const { list } = readChannelFile(this.settings.dir)
+    const channel = normalizeChannel(input)
+    if (list.some(item => String(item.id) === channel.id)) {
+      throw new Error(`通道 ${channel.id} 已存在，换个 ID 或者直接编辑它`)
+    }
+    list.push(channel)
+    writeChannelFile(this.settings.dir, list)
+    this.reloadIfRunning()
+    return this.status()
+  }
+
+  /** 编辑通道。ID 不可改——它是健康记录和偏好的引用键。 */
+  async updateChannel(input) {
+    const { list } = readChannelFile(this.settings.dir)
+    const id = String(input?.id ?? '').trim()
+    const at = list.findIndex(item => String(item.id) === id)
+    if (at < 0) throw new Error(`通道 ${id} 不存在`)
+    const current = list[at]
+    const channel = normalizeChannel(input, {
+      mustExist: list.map(item => String(item.id)),
+      keepKey: current?.key ?? '',          // 表单留空 = 不改密钥
+    })
+    // tested 是「测速优先用的模型」，界面没编辑它时保持原值
+    if (!channel.tested && current?.tested) channel.tested = current.tested
+    list[at] = channel
+    writeChannelFile(this.settings.dir, list)
+    this.reloadIfRunning()
+    return this.status()
+  }
+
+  /** 删除通道，并把它从所有模型的偏好里摘掉，避免留下指向空通道的钉子。 */
+  async deleteChannel(id) {
+    const { list } = readChannelFile(this.settings.dir)
+    const at = list.findIndex(item => String(item.id) === String(id))
+    if (at < 0) throw new Error(`通道 ${id} 不存在`)
+    list.splice(at, 1)
+    writeChannelFile(this.settings.dir, list)
+    this.dropPin(String(id))
+    this.reloadIfRunning()
+    return this.status()
+  }
+
+  /** 直接从 pins.json 里移除某个通道，避免删掉通道后偏好还指着它。 */
+  dropPin(channelId) {
+    const file = join(this.settings.dir, 'pins.json')
+    if (!existsSync(file)) return
+    let saved = {}
+    try {
+      saved = JSON.parse(readFileSync(file, 'utf8'))
+    } catch {
+      return
+    }
+    let changed = false
+    for (const [model, ids] of Object.entries(saved)) {
+      if (!Array.isArray(ids)) continue
+      const kept = ids.filter(id => id !== channelId)
+      if (kept.length !== ids.length) {
+        changed = true
+        if (kept.length > 0) saved[model] = kept
+        else delete saved[model]
+      }
+    }
+    if (changed) writeFileSync(file, JSON.stringify(saved, null, 2), 'utf8')
+  }
+
+  reloadIfRunning() {
+    if (!this.gateway?.running) return
+    try {
+      this.gateway.reload()
+      // 内存里的偏好集合也要跟着 channel 列表走
+      if (typeof this.gateway.refreshPins === 'function') this.gateway.refreshPins()
+    } catch (error) {
+      this.lastError = error?.message ?? String(error)
+    }
+  }
+
   async probe() {
     if (this.probing) throw new Error('上一轮测速还没结束')
     this.probing = true
@@ -237,7 +317,19 @@ function route(relay) {
         for await (const chunk of request) chunks.push(chunk)
         const parsed = chunks.length > 0 ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}
         const models = Array.isArray(parsed.models) ? parsed.models.map(String).filter(Boolean) : []
-        return sendJson(response, 200, relay.setAllowlist(models))
+        return sendJson(response, 200, await relay.setAllowlist(models))
+      }
+      if (action === 'channel/add' || action === 'channel/update' || action === 'channel/delete') {
+        if (method !== 'POST') {
+          response.writeHead(405, { allow: 'POST' })
+          return response.end()
+        }
+        const chunks = []
+        for await (const chunk of request) chunks.push(chunk)
+        const parsed = chunks.length > 0 ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}
+        if (action === 'channel/add') return sendJson(response, 200, await relay.addChannel(parsed.channel ?? parsed))
+        if (action === 'channel/update') return sendJson(response, 200, await relay.updateChannel(parsed.channel ?? parsed))
+        return sendJson(response, 200, await relay.deleteChannel(parsed.id))
       }
       if (action === 'pin' && method === 'POST') {
         const chunks = []

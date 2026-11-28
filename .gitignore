@@ -11,3 +11,5 @@ pins.json
 probe.json
 preview*.html
 shot-*.png
+.crud-*/
+.route-*.mjs

@@ -15,6 +15,14 @@ let body = src.slice(start, end);
    const term = JSON.stringify(process.argv[qIdx + 1]);
    body = body.replace("const [search, setSearch] = React.useState('');", `const [search, setSearch] = React.useState(${term});`);
  }
+ if (process.argv.includes('--form')) {
+   body = body.replace("const [draft, setDraft] = React.useState(null);",
+     "const [draft, setDraft] = React.useState({ mode: 'add', id: '', site: '', base: '', key: '', priority: '50', models: '', aliasText: '' });");
+ }
+ if (process.argv.includes('--confirm')) {
+   body = body.replace("const [confirmDelete, setConfirmDelete] = React.useState(null);",
+     "const [confirmDelete, setConfirmDelete] = React.useState('ch14-api-hcnsec-cn');");
+ }
  if (process.argv.includes('--all')) {
    body = body.replace("const [showAll, setShowAll] = React.useState(false);", "const [showAll, setShowAll] = React.useState(true);");
  }
@@ -197,6 +205,8 @@ globalThis.fetch = async () => ({ ok: true, json: async () => status });
     process.argv.includes('--narrow') ? 'narrow' : '',
     process.argv.includes('--dark') ? 'dark' : '',
     process.argv.includes('--stopped') ? 'stopped' : '',
+    process.argv.includes('--form') ? 'form' : '',
+    process.argv.includes('--confirm') ? 'confirm' : '',
   ].filter(Boolean).join('-') || 'base';
   const outFile = `preview-${variant}.html`;
   fs.writeFileSync(path.join(__dirname, outFile), html, 'utf8');
