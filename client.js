@@ -48,7 +48,7 @@ window.__ModuleLoader__.load({
     const zh = {
       nav: '本地中转站',
       title: '本地中转站',
-      description: '把多个 OpenAI 兼容上游合并成一个本地出口，同名模型自动在通道间故障转移。开关与通道健康状况都在这里。',
+      description: '多个 OpenAI 兼容上游合并成一个本地出口，同名模型自动在通道间故障转移。',
       running: '运行中',
       stopped: '未运行',
       base: '出口地址',
@@ -76,6 +76,9 @@ window.__ModuleLoader__.load({
       coolState: '冷却中',
       modelList: '热门模型与通道选择',
       showAll: '显示全部模型',
+      searchModels: '搜索模型',
+      noMatch: '没有匹配的模型',
+      stoppedHint: '点「启动」后，这里会显示通道健康状况和可调度的模型。',
       pickHint: '点通道名把它设为该模型的首选；再点一次取消。首选通道不可用时会自动切下一个。',
       pinnedTag: '首选',
       noProbe: '未测',
@@ -105,7 +108,7 @@ window.__ModuleLoader__.load({
     const en = {
       nav: 'Local relay',
       title: 'Local relay',
-      description: 'Merges many OpenAI-compatible upstreams behind one local endpoint and fails over between them per model name. The switch and channel health live here.',
+      description: 'Merges OpenAI-compatible upstreams behind one local endpoint and fails over between them per model name.',
       running: 'Running',
       stopped: 'Stopped',
       base: 'Endpoint',
@@ -133,6 +136,9 @@ window.__ModuleLoader__.load({
       coolState: 'Cooling',
       modelList: 'Popular models and channel choice',
       showAll: 'Show every model',
+      searchModels: 'Search models',
+      noMatch: 'No matching model',
+      stoppedHint: 'Press Start to see channel health and the dispatched models here.',
       pickHint: 'Click a channel to prefer it for this model; click again to unselect. If it fails, the next one takes over.',
       pinnedTag: 'preferred',
       noProbe: 'not probed',
@@ -196,6 +202,8 @@ window.__ModuleLoader__.load({
       .lgw-btn:disabled { opacity: .45; cursor: default; }
       .lgw-btn-primary { background: ${STYLE_TOKENS.accent}; border-color: ${STYLE_TOKENS.accent}; color: var(--dsw-alias-label-on-color, #fff); }
       .lgw-btn-primary:hover:not(:disabled) { filter: brightness(.94); background: ${STYLE_TOKENS.accent}; }
+      .lgw-btn-ghost { border-color: transparent; background: transparent; color: ${STYLE_TOKENS.textTertiary}; }
+      .lgw-btn-ghost:hover:not(:disabled) { color: inherit; background: var(--dsw-alias-bg-hover, rgba(127,127,127,.08)); }
 
       /* ---------- 卡片 ---------- */
       .lgw-card {
@@ -219,6 +227,7 @@ window.__ModuleLoader__.load({
       .lgw-meta-item { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
       .lgw-meta-label { font-size: 11px; color: ${STYLE_TOKENS.textTertiary}; letter-spacing: .02em; }
       .lgw-meta-value { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+      .lgw-meta-unit { font-size: 12px; font-weight: 400; color: ${STYLE_TOKENS.textTertiary}; }
       .lgw-meta-value.mono { font-size: 12px; font-weight: 400; color: ${STYLE_TOKENS.textSecondary};
         overflow-wrap: anywhere; word-break: break-all; }
       /* 工作目录占满整行，别把路径截成看不出是哪儿 */
@@ -284,9 +293,18 @@ window.__ModuleLoader__.load({
         border: 1px solid ${STYLE_TOKENS.border}; border-radius: 10px;
         padding: 12px 14px; margin-top: 10px;
       }
-      .lgw-group-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+      .lgw-group-head {
+        display: flex; align-items: center; gap: 8px; margin-bottom: 2px;
+        width: 100%; background: none; border: 0; color: inherit;
+        font: inherit; text-align: left; cursor: pointer;
+        padding: 2px 0; border-radius: 6px;
+      }
+      .lgw-group-head:hover .lgw-group-name { color: ${STYLE_TOKENS.accent}; }
+      .lgw-group-head:focus-visible { outline: 2px solid ${STYLE_TOKENS.accent}; outline-offset: 1px; }
       .lgw-group-name { font-size: 13px; font-weight: 600; }
       .lgw-group-meta { font-size: 11px; color: ${STYLE_TOKENS.textTertiary}; }
+  .lgw-group-meta-warn { color: ${STYLE_TOKENS.amber}; }
+      .lgw-group-head .lgw-caret { font-size: 9px; }
 
       .lgw-picks { list-style: none; margin: 0; padding: 0; }
       .lgw-pick-row { padding: 10px 0; border-bottom: 1px solid ${STYLE_TOKENS.border}; }
@@ -324,6 +342,14 @@ window.__ModuleLoader__.load({
         font-size: 12px; color: ${STYLE_TOKENS.textSecondary}; cursor: pointer; user-select: none;
       }
       .lgw-switch input { margin: 0; accent-color: ${STYLE_TOKENS.accent}; }
+  .lgw-card-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .lgw-search {
+    font: inherit; font-size: 12px; padding: 5px 9px; min-width: 150px;
+    border-radius: 7px; border: 1px solid ${STYLE_TOKENS.border};
+    background: ${STYLE_TOKENS.surfaceSunken}; color: inherit;
+  }
+  .lgw-search:focus-visible { outline: 2px solid ${STYLE_TOKENS.accent}; outline-offset: -1px; }
+  .lgw-search::placeholder { color: ${STYLE_TOKENS.textTertiary}; }
 
       .lgw-notice {
         padding: 9px 12px; border-radius: ${STYLE_TOKENS.routeLight};
@@ -364,6 +390,9 @@ window.__ModuleLoader__.load({
       const [notice, setNotice] = React.useState(null);
       const [showAll, setShowAll] = React.useState(false);
       const [openChannel, setOpenChannel] = React.useState(null);
+      // 分组展开状态；未记录的家族跟随 showAll（默认全展开，显示全部模型时默认收起）
+      const [familyOpen, setFamilyOpen] = React.useState({});
+      const [search, setSearch] = React.useState('');
       const titleId = React.useId();
 
       const load = React.useCallback(async () => {
@@ -453,18 +482,58 @@ window.__ModuleLoader__.load({
           .sort((a, b) => (a.pinned === b.pinned ? (a.dead === b.dead ? a.ms - b.ms : a.dead ? 1 : -1) : a.pinned ? -1 : 1));
       }
 
-      // 按厂商家族分组，231 个模型平铺没法看
+      // 按厂商家族分组，并按「实际能不能用」排序——
+      // 之前按模型数量排，结果你只用的 DeepSeek 被压到中间。
       const groupedModels = (() => {
-        const source = showAll ? (data?.allModels ?? data?.models ?? []) : (data?.models ?? []);
+        const all = showAll ? (data?.allModels ?? data?.models ?? []) : (data?.models ?? []);
+        const needle = search.trim().toLowerCase();
+        const source = needle ? all.filter(model => model.toLowerCase().includes(needle)) : all;
+        const pinnedMap = data?.pins ?? {};
+
+        const stats = new globalThis.Map();
+        for (const model of source) {
+          const list = candidatesByModel.get(model) ?? [];
+          const usable = list.filter(entry => entry.ok !== false);
+          let best = Infinity;
+          for (const entry of usable) {
+            const ms = entry.probed === false ? Infinity : (entry.ms || Infinity);
+            if (ms < best) best = ms;
+          }
+          stats.set(model, {
+            usable: usable.length,
+            total: list.length,
+            bestMs: Number.isFinite(best) ? best : 0,
+            pinned: Boolean(pinnedMap[model]?.[0]),
+          });
+        }
+
         const map = new globalThis.Map();
         for (const model of source) {
           const family = modelFamily(model);
           if (!map.has(family)) map.set(family, []);
           map.get(family).push(model);
         }
-        return [...map.entries()]
-          .map(([family, models]) => ({ family, models: models.sort() }))
-          .sort((a, b) => b.models.length - a.models.length || a.family.localeCompare(b.family));
+
+        return [...map.entries()].map(([family, models]) => {
+          models.sort((a, b) => {
+            const sa = stats.get(a);
+            const sb = stats.get(b);
+            if (sa.pinned !== sb.pinned) return sa.pinned ? -1 : 1;      // 已固定的排前
+            if (sa.usable !== sb.usable) return sb.usable - sa.usable;    // 可用通道多的排前
+            const ma = sa.bestMs || Infinity;
+            const mb = sb.bestMs || Infinity;
+            if (ma !== mb) return ma - mb;                                // 更快的排前
+            return a.localeCompare(b);
+          });
+          const pinnedCount = models.filter(m => stats.get(m).pinned).length;
+          const usableCount = models.filter(m => stats.get(m).usable > 0).length;
+          return { family, models, stats, pinnedCount, usableCount };
+        }).sort((a, b) => {
+          if (a.pinnedCount !== b.pinnedCount) return b.pinnedCount - a.pinnedCount;
+          if (a.usableCount !== b.usableCount) return b.usableCount - a.usableCount;
+          if (a.models.length !== b.models.length) return b.models.length - a.models.length;
+          return a.family.localeCompare(b.family);
+        });
       })();
 
       async function choosePin(model, channelId) {        try {
@@ -484,13 +553,15 @@ window.__ModuleLoader__.load({
             h('h2', { className: 'lgw-title', id: titleId }, t('title')),
             h('p', { className: 'lgw-desc' }, t('description'))),
           h('div', { className: 'lgw-actions' },
+            // 主按钮给真正常用的动作：没运行时是「启动」，运行中是「测速」。
+            // 「重启」是维护操作，不该比测速更显眼。
             data?.running
-              ? h('button', { type: 'button', className: 'lgw-btn lgw-btn-primary', disabled: Boolean(busy), onClick: () => run('restart') }, busy === 'restart' ? t('busy') : t('restart'))
+              ? h('button', { type: 'button', className: 'lgw-btn lgw-btn-primary', disabled: Boolean(busy), onClick: () => run('probe') }, busy === 'probe' ? t('probing') : t('probe'))
               : h('button', { type: 'button', className: 'lgw-btn lgw-btn-primary', disabled: Boolean(busy), onClick: () => run('start') }, busy === 'start' ? t('busy') : t('start')),
+            data?.running ? h('button', { type: 'button', className: 'lgw-btn', disabled: Boolean(busy), onClick: () => run('reload') }, busy === 'reload' ? t('busy') : t('reload')) : null,
+            data?.running ? h('button', { type: 'button', className: 'lgw-btn', disabled: Boolean(busy), onClick: () => run('restart') }, busy === 'restart' ? t('busy') : t('restart')) : null,
             data?.running ? h('button', { type: 'button', className: 'lgw-btn', disabled: Boolean(busy), onClick: () => run('stop') }, busy === 'stop' ? t('busy') : t('stop')) : null,
-            h('button', { type: 'button', className: 'lgw-btn', disabled: Boolean(busy) || !data?.running, onClick: () => run('reload') }, busy === 'reload' ? t('busy') : t('reload')),
-            h('button', { type: 'button', className: 'lgw-btn', disabled: Boolean(busy) || !data?.running, onClick: () => run('probe') }, busy === 'probe' ? t('probing') : t('probe')),
-            h('button', { type: 'button', className: 'lgw-btn', disabled: Boolean(busy), onClick: () => { setBusy('refresh'); load().finally(() => setBusy(null)); } }, busy === 'refresh' ? t('busy') : t('refresh')))),
+            h('button', { type: 'button', className: 'lgw-btn lgw-btn-ghost', disabled: Boolean(busy), onClick: () => { setBusy('refresh'); load().finally(() => setBusy(null)); } }, busy === 'refresh' ? t('busy') : t('refresh')))),
 
         state.error ? h('div', { className: 'lgw-notice lgw-notice-error', role: 'alert' }, t('cannot', { message: state.error })) : null,
         notice ? h('div', { className: notice.tone === 'error' ? 'lgw-notice lgw-notice-error' : 'lgw-notice', role: 'status' }, notice.text) : null,
@@ -505,17 +576,24 @@ window.__ModuleLoader__.load({
             h('div', { className: 'lgw-meta-item' }, h('span', { className: 'lgw-meta-label' }, t('base')), h('span', { className: 'lgw-meta-value mono', title: data.base }, data.base)),
             data.running ? h('div', { className: 'lgw-meta-item' },
               h('span', { className: 'lgw-meta-label' }, t('channels')),
-              h('span', { className: 'lgw-meta-value' }, `${data.healthy} / ${rows.length}`)) : null,
+              h('span', { className: 'lgw-meta-value' },
+                String(data.healthy),
+                h('span', { className: 'lgw-meta-unit' }, ` / ${rows.length}`))) : null,
             data.running ? h('div', { className: 'lgw-meta-item' },
               h('span', { className: 'lgw-meta-label' }, t('verified')),
-              h('span', { className: 'lgw-meta-value' }, String(data.verified))) : null,
+              h('span', { className: 'lgw-meta-value' },
+                String(data.verified),
+                h('span', { className: 'lgw-meta-unit' }, ` / ${rows.length}`))) : null,
             data.running ? h('div', { className: 'lgw-meta-item' },
               h('span', { className: 'lgw-meta-label' }, t('models')),
-              h('span', { className: 'lgw-meta-value' }, String(data.modelCount))) : null,
+              h('span', { className: 'lgw-meta-value' },
+                String(data.modelCount),
+                h('span', { className: 'lgw-meta-unit' }, ' 个'))) : null,
             h('div', { className: 'lgw-meta-item lgw-meta-item-wide' },
               h('span', { className: 'lgw-meta-label' }, t('dir')),
               h('span', { className: 'lgw-meta-value mono', title: data.dir }, data.dir))),
-          data.detail ? h('p', { className: 'lgw-desc', style: { marginTop: 12, color: 'var(--dsw-alias-danger, #b0483c)' } }, data.detail) : null) : null,
+          data.detail ? h('p', { className: 'lgw-desc', style: { marginTop: 12, color: 'var(--dsw-alias-danger, #b0483c)' } }, data.detail) : null,
+          data.running ? null : h('p', { className: 'lgw-empty', style: { marginTop: 12 } }, t('stoppedHint'))) : null,
 
         data?.running && rows.length === 0
           ? h('div', { className: 'lgw-card' }, h('p', { className: 'lgw-empty' }, t('empty')))
@@ -581,42 +659,78 @@ window.__ModuleLoader__.load({
         // ---- 模型与通道选择 ----
         data?.running && data.models?.length > 0 ? h('div', { className: 'lgw-card' },
           h('div', { className: 'lgw-card-head' },
-            h('h3', { className: 'lgw-card-title' }, `${t('modelList')} · ${data.models.length}`),
-            h('label', { className: 'lgw-switch' },
-              h('input', { type: 'checkbox', checked: showAll, onChange: event => setShowAll(event.target.checked) }),
-              t('showAll'))),
+            h('h3', { className: 'lgw-card-title' },
+              t('modelList'),
+              ' · ',
+              // 勾上「显示全部模型」或搜索时标题要跟着变，否则写着 5 却列出 231 个
+              String(groupedModels.reduce((sum, group) => sum + group.models.length, 0))),
+            h('div', { className: 'lgw-card-tools' },
+              h('input', {
+                type: 'search',
+                className: 'lgw-search',
+                value: search,
+                placeholder: t('searchModels'),
+                'aria-label': t('searchModels'),
+                onChange: event => setSearch(event.target.value),
+              }),
+              h('label', { className: 'lgw-switch' },
+                h('input', { type: 'checkbox', checked: showAll, onChange: event => setShowAll(event.target.checked) }),
+                t('showAll')))),
           h('p', { className: 'lgw-card-sub', style: { margin: '0 0 4px' } }, t('pickHint')),
-          groupedModels.map(group => h('div', { key: group.family, className: 'lgw-group' },
-            h('div', { className: 'lgw-group-head' },
-              h('span', { className: 'lgw-group-name' }, group.family),
-              h('span', { className: 'lgw-group-meta' }, String(group.models.length))),
-            h('ul', { className: 'lgw-picks' }, group.models.map(model => {
-              const candidates = channelsFor(model);
-              const pinnedNow = data.pins?.[model]?.[0];
-              if (candidates.length === 0) {
+          groupedModels.length === 0
+            ? h('p', { className: 'lgw-empty' }, t('noMatch'))
+            : null,
+          groupedModels.map(group => {
+            const open = search.trim() ? true : (familyOpen[group.family] ?? !showAll);
+            return h('div', { key: group.family, className: 'lgw-group' },
+              h('button', {
+                type: 'button',
+                className: 'lgw-group-head',
+                'aria-expanded': open,
+                onClick: () => setFamilyOpen(prev => ({ ...prev, [group.family]: !open })),
+              },
+                h('span', { className: `lgw-caret${open ? ' lgw-caret-open' : ''}`, 'aria-hidden': 'true' }, '▶'),
+                h('span', { className: 'lgw-group-name' }, group.family),
+                h('span', { className: 'lgw-group-meta' },
+                  `${group.models.length} 个模型`,
+                  group.usableCount === group.models.length
+                    ? null
+                    : h('span', { className: 'lgw-group-meta-warn' }, ` · ${group.usableCount} 可用`))),
+              open ? h('ul', { className: 'lgw-picks' }, group.models.map(model => {
+                const candidates = channelsFor(model);
+                const pinnedNow = data.pins?.[model]?.[0];
+                const info = group.stats.get(model);
+                if (candidates.length === 0) {
+                  return h('li', { key: model, className: 'lgw-pick-row' },
+                    h('div', { className: 'lgw-pick-name' }, h('code', null, model)),
+                    h('span', { className: 'lgw-card-sub' }, t('noProbe')));
+                }
                 return h('li', { key: model, className: 'lgw-pick-row' },
-                  h('div', { className: 'lgw-pick-name' }, h('code', null, model)),
-                  h('span', { className: 'lgw-card-sub' }, t('noProbe')));
-              }
-              return h('li', { key: model, className: 'lgw-pick-row' },
-                h('div', { className: 'lgw-pick-name' },
-                  h('code', { title: model }, model),
-                  pinnedNow ? h('span', { className: 'lgw-badge lgw-badge-pin' }, t('pinnedTag')) : null,
-                  pinnedNow ? h('button', {
-                    type: 'button', className: 'lgw-mini',
-                    onClick: () => choosePin(model, null),
-                  }, t('clearPin')) : null),
-                h('div', { className: 'lgw-chips' }, candidates.map(candidate => h('button', {
-                  key: candidate.id,
-                  type: 'button',
-                  className: `lgw-chip${candidate.pinned ? ' lgw-chip-on' : ''}${candidate.dead ? ' lgw-chip-dead' : ''}`,
-                  title: candidate.title,
-                  onClick: () => choosePin(model, candidate.pinned ? null : candidate.id),
-                },
-                  h('span', { className: candidate.probed ? latencyClass(candidate.ms) : 'lgw-muted' },
-                    candidate.probed ? `${candidate.ms}ms` : t('unprobed')),
-                  h('span', { className: 'lgw-chip-text' }, candidate.id)))));
-            })))))
+                  h('div', { className: 'lgw-pick-name' },
+                    h('code', { title: model }, model),
+                    pinnedNow ? h('span', { className: 'lgw-badge lgw-badge-pin' }, t('pinnedTag')) : null,
+                    pinnedNow ? h('button', {
+                      type: 'button', className: 'lgw-mini',
+                      onClick: () => choosePin(model, null),
+                    }, t('clearPin')) : null,
+                    info.usable === 0
+                      ? h('span', { className: 'lgw-badge lgw-badge-cool' }, t('unusable'))
+                      : null),
+                  h('div', { className: 'lgw-chips' }, candidates.map(candidate => h('button', {
+                    key: candidate.id,
+                    type: 'button',
+                    className: `lgw-chip${candidate.pinned ? ' lgw-chip-on' : ''}${candidate.dead ? ' lgw-chip-dead' : ''}`,
+                    title: candidate.title,
+                    onClick: () => choosePin(model, candidate.pinned ? null : candidate.id),
+                  },
+                    // 未测速时不再重复写「未测」——整颗 chip 变灰 + 悬停提示已经说明，
+                    // 一行行都是「未测 ch19-…」才是真正的噪音
+                    candidate.probed
+                      ? h('span', { className: latencyClass(candidate.ms) }, `${candidate.ms}ms`)
+                      : null,
+                    h('span', { className: 'lgw-chip-text' }, candidate.id)))));
+              })) : null);
+          }))
           : null);
     }
 

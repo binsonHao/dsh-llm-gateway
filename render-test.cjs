@@ -134,6 +134,7 @@ const families = new Set();
 
 const checks = [
   ['分组渲染', groupCount === 3, `期望 3 组（DeepSeek/GLM/Grok），实际 ${groupCount}（${[...families].join(', ')}）`],
+  ['分组顺序', families instanceof Set && [...families][0] === 'DeepSeek', `有固定通道的 DeepSeek 应排第一，实际 ${[...families].join(' / ')}`],
   ['通道芯片', chipCount === 10, `期望 10 个（V4.1-Flash 5、GLM 1、grok-4.7 2、grok-4.6 1、grok-4.5 1），实际 ${chipCount}`],
   ['ch19 排首位', /ch19-wududu-edu-kg","[^}]*"[^"]*"，?ch4/.test(flat) || flat.indexOf('ch19-wududu-edu-kg') < flat.indexOf('ch13-api-hcnsec-cn'), '固定的 ch19 没排在候选前面'],
   ['错误压缩', true, '错误默认折叠在详情里，展开后单独断言'],
@@ -196,8 +197,31 @@ console.log(`\n分组：${[...families].join(' / ')}`);
   const flatOpen = JSON.stringify(openTree);
   const detailOk = flatOpen.includes('Invalid token (request id: 202611270353090…');
   console.log(`${detailOk ? '✓' : '✗'} 展开后错误压缩${detailOk ? '' : ' — 详情里没有压缩后的错误文本'}`);
+
+  // 搜索过滤：只留匹配的模型，且分组自动展开
+  const searchTree = await (async () => {
+    const body3 = body.replace(
+      "const [search, setSearch] = React.useState('');",
+      "const [search, setSearch] = React.useState('grok');",
+    );
+    const m3 = new Function('require', 'window', 'globalThis', `${body3}\nreturn { LlmGatewayPage, zh };`)(
+      () => React, { __ModuleLoader__: {} }, globalThis,
+    );
+    React.__reset();
+    React.__renderPass(m3, t);
+    React.__runEffects();
+    await new Promise(r => setImmediate(r));
+    await new Promise(r => setTimeout(r, 20));
+    React.__rewind();
+    return React.__renderPass(m3, t);
+  })();
+  const flatSearch = JSON.stringify(searchTree);
+  const searchOk = flatSearch.includes('grok-4.7')
+    && !flatSearch.includes('DeepSeek-V4.1-Flash')
+    && !flatSearch.includes('GLM-5.3-Flash');
+  console.log(`${searchOk ? '✓' : '✗'} 搜索过滤${searchOk ? '' : ' — 输入 grok 后仍能看到无关模型'}`);
   globalThis.fetch = orig;
-  process.exit(failed === 0 && detailOk ? 0 : 1);
+  process.exit(failed === 0 && detailOk && searchOk ? 0 : 1);
 })();
 
 });

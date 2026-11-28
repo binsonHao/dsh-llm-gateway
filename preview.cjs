@@ -10,6 +10,14 @@ const start = src.indexOf('factory(require) {') + 'factory(require) {'.length;
 const end = src.search(/return \{[\s]*inject:/);
 if (start < 10 || end < 0) throw new Error('切片失败');
 let body = src.slice(start, end);
+ const qIdx = process.argv.indexOf('--q');
+ if (qIdx > -1 && process.argv[qIdx + 1]) {
+   const term = JSON.stringify(process.argv[qIdx + 1]);
+   body = body.replace("const [search, setSearch] = React.useState('');", `const [search, setSearch] = React.useState(${term});`);
+ }
+ if (process.argv.includes('--all')) {
+   body = body.replace("const [showAll, setShowAll] = React.useState(false);", "const [showAll, setShowAll] = React.useState(true);");
+ }
  if (process.argv.includes('--open')) {
    body = body.replace("const [openChannel, setOpenChannel] = React.useState(null);", "const [openChannel, setOpenChannel] = React.useState('ch14-api-hcnsec-cn');");
  }
@@ -99,28 +107,21 @@ const status = {
   pins: { 'DeepSeek-V4.1-Flash': ['ch19-wududu-edu-kg'] },
 };
 
-const dict = {
-  title: '本地中转站',
-  description: '把多个 OpenAI 兼容上游合并成一个本地出口，同名模型自动在通道间故障转移。开关与通道健康状况都在这里。',
-  running: '运行中', base: '出口地址', dir: '工作目录', channels: '通道', healthy: '健康', verified: '实测通过',
-  models: '模型', restart: '重启', stop: '停止', reload: '热加载', probe: '测速', refresh: '刷新',
-  channelId: '通道', site: '站点', state: '状态', colLatency: '实测延迟', colImage: '图片', fails: '失败', latency: '延迟',
-  lastError: '最近错误', okState: '正常', coolState: '冷却中', modelList: '热门模型与通道选择', showAll: '显示全部模型',
-  pickHint: '点通道名把它设为该模型的首选；再点一次取消。首选通道不可用时会自动切下一个。',
-  pinnedTag: '首选', clearPin: '恢复自动', unprobed: '未测', imageYes: '支持', imageNo: '不支持', imageSkipped: '—',
-  noProbe: '没测过', probeNever: '还没测过',
-  unusable: '不可用', probeFail: '✗ 失败',
-};
+const mod = new Function('require', 'window', 'globalThis', `${body}\nreturn { LlmGatewayPage, zh };`)(
+  () => React, { __ModuleLoader__: {} }, globalThis,
+);
+
+// 用组件真实的 zh 字典，避免预览和线上文案脱节
+const dict = mod.zh;
 const t = (k, vars) => {
-  if (k === 'probeResult') return `最近测速：${vars?.ok}/${vars?.total} 通道可用，${vars?.image} 个支持图片`;
-  return dict[k] ?? k;
+  const raw = dict[k] ?? k;
+  if (!vars) return raw;
+  return raw.replace(/\{(\w+)\}/g, (_, name) => String(vars[name] ?? ''));
 };
 
 globalThis.fetch = async () => ({ ok: true, json: async () => status });
 
-const mod = new Function('require', 'window', 'globalThis', `${body}\nreturn { LlmGatewayPage };`)(
-  () => React, { __ModuleLoader__: {} }, globalThis,
-);
+
 
 (async () => {
   React.__reset();
@@ -183,6 +184,15 @@ const mod = new Function('require', 'window', 'globalThis', `${body}\nreturn { L
   <div class="frame">${inner}</div>
 </body></html>`;
 
-  fs.writeFileSync(path.join(__dirname, [process.argv.includes('--open') ? 'preview-open' : 'preview', process.argv.includes('--dark') ? '-dark' : ''].join('') + '.html'), html, 'utf8');
-  console.log('已生成 preview.html，', html.length, 'bytes');
+  // 每个变体写自己的文件，否则后一次会覆盖前一次、带上不该有的 body class
+  const variant = [
+    process.argv.includes('--q') ? 'q' : '',
+    process.argv.includes('--all') ? 'all' : '',
+    process.argv.includes('--open') ? 'open' : '',
+    process.argv.includes('--narrow') ? 'narrow' : '',
+    process.argv.includes('--dark') ? 'dark' : '',
+  ].filter(Boolean).join('-') || 'base';
+  const outFile = `preview-${variant}.html`;
+  fs.writeFileSync(path.join(__dirname, outFile), html, 'utf8');
+  console.log(`已生成 ${outFile}，${html.length} bytes`);
 })();
